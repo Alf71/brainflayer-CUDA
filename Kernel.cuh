@@ -194,8 +194,12 @@ __global__ void SetCurve(bool secp256, bool ed25519, bool compressed, bool uncom
 __global__ void workerBrain(bool* isResult, bool* buffResult, char* __restrict__ lines, const uint32_t* __restrict__ indexes, uint32_t indexes_size, const secp256k1_ge_storage* __restrict__ precPtr, size_t precPitch, uint64_t round, uint8_t brain_mode, const uint32_t* __restrict__ iterations, uint32_t iterations_size);
 __global__ void workerBrain_seq(bool* isResult, bool* buffResult, const secp256k1_ge_storage* __restrict__ precPtr, size_t precPitch, uint64_t round, uint8_t brain_mode, int mode, uint8_t* start_point_dev, int min_len, uint32_t iter);
 __global__ KERNEL_LAUNCH_BOUNDS void workerPRIV(bool* isResult, bool* buffResult, char* __restrict__ lines, const uint32_t* __restrict__ indexes, uint32_t indexes_size, const secp256k1_ge_storage* __restrict__ precPtr, size_t precPitch, uint64_t round);
+__global__ void advance_P0_kernel(uint64_t advance);
 __global__ void compute_P0_H_kernel(const uint8_t* __restrict__ start_point, uint64_t step, const secp256k1_ge_storage* __restrict__ precPtr, size_t precPitch, int mode);
 cudaError_t cuda_vanity_set_step_increment(uint64_t step, const void* precPtr, size_t precPitch);
+cudaError_t cuda_vanity_set_persistent_shift(uint64_t advance);
+cudaError_t cuda_vanity_apply_persistent_shift(uint64_t* startx_buf, uint64_t* starty_buf, dim3 grid, dim3 block);
+__global__ void precompute_vanity_starts_kernel(uint64_t* __restrict__ startx_buf, uint64_t* __restrict__ starty_buf, int thread_steps_pub);
 __global__ void workerPRIV_seq_128(bool* isResult, bool* buffResult, const secp256k1_ge_storage* __restrict__ precPtr, size_t precPitch, int mode, uint8_t* start_point, uint64_t step, int thread_steps_pub, uint64_t* __restrict__ startx_buf, uint64_t* __restrict__ starty_buf);
 __global__ void workerPRIV_seq_vanity_x(bool* isResult, bool* buffResult, const secp256k1_ge_storage* __restrict__ precPtr, size_t precPitch, int mode, uint8_t* start_point, uint64_t step, int thread_steps_pub, uint64_t* __restrict__ startx_buf, uint64_t* __restrict__ starty_buf);
 __global__ void workerPRIV_seq_vanity_c(bool* isResult, bool* buffResult, const secp256k1_ge_storage* __restrict__ precPtr, size_t precPitch, int mode, uint8_t* start_point, uint64_t step, int thread_steps_pub, uint64_t* __restrict__ startx_buf, uint64_t* __restrict__ starty_buf);

@@ -136,7 +136,7 @@ static thread_local CudaHashLookup _targetLookup;
 static thread_local secp256k1_ge_storage* _dev_precomp = nullptr;
 static thread_local size_t pitch = 0;
 
-uint32_t MAX_FOUNDS = 300000;
+uint32_t MAX_FOUNDS = 150000;
 bool g_save_output_with_gpu_prefix = false;
 std::vector<std::thread> g_save_threads;
 std::mutex g_save_threads_mutex;
@@ -253,6 +253,47 @@ static string normalizePointForPrint(string value, size_t width, char fill)
     return value;
 }
 
+static void printSequentialRangeBounds()
+{
+    if (!seqMode) {
+        return;
+    }
+    const char* modeLabel = runKind == RunKind::Brain ? "BRAINWALLET" : "PVK";
+    const size_t width = runKind == RunKind::Brain ? 512u : 64u;
+    const char* label = runKind == RunKind::Brain ? "BRAIN POINT" : "PVK";
+    const string startPrint = normalizePointForPrint(start_point, width, '0');
+    const string endPrint = end_point.empty()
+        ? normalizePointForPrint(string(), width, backward ? '0' : 'F')
+        : normalizePointForPrint(end_point, width, '0');
+
+    if (isRandom) {
+        printf("[!] starting %s sequential random mode +- n=%llu step=0x%llx [!]\n",
+            modeLabel,
+            static_cast<unsigned long long>(n_number),
+            static_cast<unsigned long long>(step));
+    }
+    else if (both) {
+        printf("[!] starting %s sequential both mode +- step=0x%llx [!]\n",
+            modeLabel,
+            static_cast<unsigned long long>(step));
+    }
+    else if (backward) {
+        printf("[!] starting %s sequential backward mode - step=0x%llx [!]\n",
+            modeLabel,
+            static_cast<unsigned long long>(step));
+    }
+    else {
+        printf("[!] starting %s sequential mode + step=0x%llx [!]\n",
+            modeLabel,
+            static_cast<unsigned long long>(step));
+    }
+    printf("START %s: %s\n", label, startPrint.c_str());
+    if (!both) {
+        printf("END %s: %s\n", label, endPrint.c_str());
+    }
+    fflush(stdout);
+}
+
 static void printBranchStartup()
 {
     if (silent) {
@@ -275,39 +316,6 @@ static void printBranchStartup()
     }
 
     if (seqMode) {
-        const size_t width = runKind == RunKind::Brain ? 512u : 64u;
-        const char* label = runKind == RunKind::Brain ? "BRAIN POINT" : "PVK";
-        const char* modeLabel = runKind == RunKind::Brain ? "BRAINWALLET" : "PVK";
-        const string startPrint = normalizePointForPrint(start_point, width, '0');
-        const string endPrint = end_point.empty()
-            ? normalizePointForPrint(string(), width, backward ? '0' : 'F')
-            : normalizePointForPrint(end_point, width, '0');
-
-        if (isRandom) {
-            printf("[!] starting %s sequential random mode +- n=%llu step=0x%llx [!]\n",
-                modeLabel,
-                static_cast<unsigned long long>(n_number),
-                static_cast<unsigned long long>(step));
-        }
-        else if (both) {
-            printf("[!] starting %s sequential both mode +- step=0x%llx [!]\n",
-                modeLabel,
-                static_cast<unsigned long long>(step));
-        }
-        else if (backward) {
-            printf("[!] starting %s sequential backward mode - step=0x%llx [!]\n",
-                modeLabel,
-                static_cast<unsigned long long>(step));
-        }
-        else {
-            printf("[!] starting %s sequential mode + step=0x%llx [!]\n",
-                modeLabel,
-                static_cast<unsigned long long>(step));
-        }
-        printf("START %s: %s\n", label, startPrint.c_str());
-        if (!both) {
-            printf("END %s: %s\n", label, endPrint.c_str());
-        }
         return;
     }
 
@@ -1170,6 +1178,32 @@ static vector<string> scanDir(const string& directory, bool allFiles)
     return out;
 }
 
+static uint64_t fileSizeIfExists(const string& path)
+{
+    ifstream in(path, ios::binary | ios::ate);
+    if (!in) {
+        return 0;
+    }
+    const streampos pos = in.tellg();
+    if (pos <= 0) {
+        return 0;
+    }
+    return static_cast<uint64_t>(pos);
+}
+
+static uint64_t sumExistingFileSizes(const vector<string>& files)
+{
+    uint64_t total = 0;
+    for (const string& path : files) {
+        const uint64_t size = fileSizeIfExists(path);
+        if (size > numeric_limits<uint64_t>::max() - total) {
+            return numeric_limits<uint64_t>::max();
+        }
+        total += size;
+    }
+    return total;
+}
+
 static bool checkDevice(int device)
 {
     DEVICE_NR = device;
@@ -1192,7 +1226,80 @@ static bool checkDevice(int device)
         BLOCK_THREADS = props.maxThreadsPerBlock / 8 * 2;
     }
     if (BLOCK_NUMBER == 0) {
-        BLOCK_NUMBER = props.multiProcessorCount * 8;
+        unsigned int blocksPerSm = 8;
+        const char* tuneProfile = "default";
+        const bool fileInputMode = !inputFiles.empty() || !FolderList.empty();
+        if (runKind == RunKind::Priv) {
+            if (seqMode && !isRandom && !fileInputMode) {
+                const bool onlyBloom = gUseBloom && !gUseXorC && !gUseXorU && !gUseXorUc && !gUseXorH;
+                const bool onlyXorUn = gUseXorU && !gUseBloom && !gUseXorC && !gUseXorUc && !gUseXorH;
+                if (onlyXorUn) {
+                    const uint64_t xuBytes = sumExistingFileSizes(gXorUFiles);
+                    if (xuBytes >= (8ull << 30)) {
+                        blocksPerSm = 16;
+                    }
+                    else if (xuBytes >= (2ull << 30)) {
+                        blocksPerSm = 24;
+                    }
+                    else if (xuBytes >= (512ull << 20)) {
+                        blocksPerSm = 48;
+                    }
+                    else if (xuBytes >= (128ull << 20)) {
+                        blocksPerSm = 96;
+                    }
+                    else {
+                        blocksPerSm = 256;
+                    }
+                    tuneProfile = "priv_seq_xu";
+                }
+                else if (onlyBloom) {
+                    blocksPerSm = 256;
+                    tuneProfile = "priv_seq_bf";
+                }
+                else if (gUseBloom && gUseXorU) {
+                    blocksPerSm = 64;
+                    tuneProfile = "priv_seq_bf_xu";
+                }
+                else {
+                    blocksPerSm = 72;
+                    tuneProfile = "priv_seq";
+                }
+            }
+            else if (isRandom) {
+                blocksPerSm = 40;
+                tuneProfile = "priv_random";
+            }
+            else if (fileInputMode) {
+                blocksPerSm = 4;
+                tuneProfile = "priv_file";
+            }
+            else {
+                blocksPerSm = 4;
+                tuneProfile = "priv_stream";
+            }
+        }
+        else {
+            blocksPerSm = 4;
+            tuneProfile = (seqMode || isRandom) ? "brain_seq_random" :
+                (fileInputMode ? "brain_file" : "brain_stream");
+        }
+
+        const unsigned int threadsPerBlock = (BLOCK_THREADS == 0u) ? 256u : BLOCK_THREADS;
+        const unsigned int maxOutputThreads = 16u * 1024u * 1024u;
+        unsigned int maxBlocks = maxOutputThreads / max(1u, threadsPerBlock);
+        if (maxBlocks == 0u) {
+            maxBlocks = 1u;
+        }
+        unsigned int maxBlocksPerSm = maxBlocks / max(1, props.multiProcessorCount);
+        if (maxBlocksPerSm == 0u) {
+            maxBlocksPerSm = 1u;
+        }
+        if (blocksPerSm > maxBlocksPerSm) {
+            blocksPerSm = maxBlocksPerSm;
+        }
+        BLOCK_NUMBER = props.multiProcessorCount * blocksPerSm;
+        fprintf(stderr, "[!] Auto-tuned blocks profile '%s': %u per SM (derivations: %zu)\n",
+            tuneProfile, blocksPerSm, Derivations_list.empty() ? 1u : Derivations_list.size());
     }
     workSize = static_cast<uint64_t>(BLOCK_NUMBER) * BLOCK_THREADS *
         static_cast<uint64_t>(runKind == RunKind::Priv
@@ -1921,32 +2028,32 @@ static cudaError_t prepareCuda()
     return cudaSuccess;
 }
 
-static cudaError_t launchWorkerPrivSeq(dim3 grid, dim3 block, bool* isResult, bool* deviceResult, int walkMode, uint8_t* devStart, uint64_t seqStep)
+static cudaError_t launchWorkerPrivSeq(dim3 grid, dim3 block, bool* isResult, bool* deviceResult, int walkMode, uint8_t* devStart, uint64_t seqStep, uint64_t* startxBuf, uint64_t* startyBuf)
 {
     const bool hasOther = Solana || Ton || Ton_all || Dot || Aptos || Sui || Xrp || Iota || Icp || Fil || Xtz;
     if (!hasOther && !Ethereum && !Compressed && !Uncompressed && !Segwit && !Taproot && Xpoint) {
-        workerPRIV_seq_vanity_x<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_vanity_x<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else if (!hasOther && !Ethereum && Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint) {
-        workerPRIV_seq_vanity_c<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_vanity_c<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else if (!hasOther && !Ethereum && !Compressed && Uncompressed && !Segwit && !Taproot && !Xpoint) {
-        workerPRIV_seq_vanity_u<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_vanity_u<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else if (!hasOther && !Ethereum && !Compressed && !Uncompressed && Segwit && !Taproot && !Xpoint) {
-        workerPRIV_seq_vanity_s<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_vanity_s<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else if (!hasOther && !Ethereum && !Compressed && !Uncompressed && !Segwit && Taproot && !Xpoint) {
-        workerPRIV_seq_vanity_r<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_vanity_r<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else if (!hasOther && Ethereum && !Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint) {
-        workerPRIV_seq_vanity_e<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_vanity_e<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else if (!hasOther && !Ethereum && !Xpoint && (Compressed || Uncompressed || Segwit || Taproot)) {
-        workerPRIV_seq_vanity_cusr<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_vanity_cusr<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else {
-        workerPRIV_seq_128<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, nullptr, nullptr);
+        workerPRIV_seq_128<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     return cudaGetLastError();
 }
@@ -2029,9 +2136,32 @@ public:
     {
         const uint64_t inputWorkSize = static_cast<uint64_t>(BLOCK_NUMBER) * BLOCK_THREADS *
             static_cast<uint64_t>(runKind == RunKind::Priv ? THREAD_STEPS : THREAD_STEPS_BRAIN);
-        cudaError_t err = allocateResultBuffers(max<uint64_t>(workSize, inputWorkSize), &isResult_, &deviceResult_);
+        const uint64_t resultEntries = (runKind == RunKind::Priv && seqMode) ? 1ull : max<uint64_t>(workSize, inputWorkSize);
+        cudaError_t err = allocateResultBuffers(resultEntries, &isResult_, &deviceResult_);
         if (err != cudaSuccess) {
             throw runtime_error(cudaGetErrorString(err));
+        }
+        if (runKind == RunKind::Priv && seqMode) {
+            err = cudaMalloc((void**)&devPrivSeqStart_, 32);
+            if (err != cudaSuccess || devPrivSeqStart_ == nullptr) {
+                throw runtime_error(cudaGetErrorString(err));
+            }
+            useVanityStartBuffers_ = (PRIV_SEQ_THREAD_STEPS % 1024 == 0) && (BLOCK_THREADS <= 256u);
+            if (useVanityStartBuffers_) {
+                const size_t startBufSize = static_cast<size_t>(BLOCK_NUMBER) * BLOCK_THREADS * 4 * sizeof(uint64_t);
+                err = cudaMalloc((void**)&devVanityStartX_, startBufSize);
+                if (err == cudaSuccess) {
+                    err = cudaMalloc((void**)&devVanityStartY_, startBufSize);
+                }
+                if (err != cudaSuccess) {
+                    fprintf(stderr, "[!] GPU %d: vanity start buffers disabled: %s [!]\n", DEVICE_NR, cudaGetErrorString(err));
+                    cudaFree(devVanityStartX_);
+                    cudaFree(devVanityStartY_);
+                    devVanityStartX_ = nullptr;
+                    devVanityStartY_ = nullptr;
+                    useVanityStartBuffers_ = false;
+                }
+            }
         }
         if (runKind == RunKind::Brain) {
             iterationsHost_.reserve(Iterations.size());
@@ -2058,6 +2188,9 @@ public:
             cudaFree(devIndexes_[i]);
         }
         cudaFree(devIterations_);
+        cudaFree(devPrivSeqStart_);
+        cudaFree(devVanityStartX_);
+        cudaFree(devVanityStartY_);
         if (isResult_ != nullptr) cudaFree(isResult_);
         if (deviceResult_ != nullptr) cudaFree(deviceResult_);
     }
@@ -2143,40 +2276,88 @@ public:
 
     void runPrivSeqChunk(const array<uint8_t, 32>& start, bool back, uint64_t seqStep, uint64_t count)
     {
-        uint8_t* devStart = nullptr;
-        cudaError_t err = cudaMalloc((void**)&devStart, 32);
+        if (devPrivSeqStart_ == nullptr) {
+            throw runtime_error("private sequential start buffer is not allocated");
+        }
+
+        cudaError_t err = cudaMemcpyAsync(devPrivSeqStart_, start.data(), 32, cudaMemcpyHostToDevice);
         if (err != cudaSuccess) {
             throw runtime_error(cudaGetErrorString(err));
         }
-        err = cudaMemcpy(devStart, start.data(), 32, cudaMemcpyHostToDevice);
-        if (err != cudaSuccess) {
-            cudaFree(devStart);
-            throw runtime_error(cudaGetErrorString(err));
-        }
+
         const int walkMode = back ? -1 : 1;
         const bool secpActive = Compressed || Uncompressed || Segwit || Taproot ||
             Ethereum || Xpoint || Dot || Aptos || Sui || Xrp || Iota || Icp || Fil || Xtz;
+        const bool hasOther = Solana || Ton || Ton_all || Dot || Aptos || Sui || Xrp || Iota || Icp || Fil || Xtz;
+        const bool persistentCompressedOnly = useVanityStartBuffers_ && devVanityStartX_ != nullptr && devVanityStartY_ != nullptr &&
+            !hasOther && !Ethereum && Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint;
+        const bool canReusePersistent = persistentCompressedOnly && vanityStartBuffersReady_ &&
+            vanityPersistentShiftReady_ && vanitySeqStep_ == seqStep && vanityWalkMode_ == walkMode;
+
         if (secpActive) {
-            compute_P0_H_kernel<<<1, 1>>>(devStart, seqStep, _dev_precomp, pitch, walkMode);
-            err = cudaGetLastError();
-            if (err == cudaSuccess) {
-                err = cudaDeviceSynchronize();
+            if (!canReusePersistent) {
+                compute_P0_H_kernel<<<1, 1>>>(devPrivSeqStart_, seqStep, _dev_precomp, pitch, walkMode);
+                err = cudaGetLastError();
+                if (err == cudaSuccess) {
+                    err = cudaDeviceSynchronize();
+                }
+                if (err == cudaSuccess) {
+                    err = cuda_vanity_set_step_increment(seqStep, _dev_precomp, pitch);
+                }
+                if (err != cudaSuccess) {
+                    throw runtime_error(cudaGetErrorString(err));
+                }
+                vanityStartBuffersReady_ = false;
+                vanityPersistentShiftReady_ = false;
+                vanitySeqStep_ = seqStep;
+                vanityWalkMode_ = walkMode;
+
+                if (persistentCompressedOnly) {
+                    const uint64_t outputSize = static_cast<uint64_t>(BLOCK_NUMBER) *
+                        static_cast<uint64_t>(BLOCK_THREADS) *
+                        static_cast<uint64_t>(PRIV_SEQ_THREAD_STEPS);
+                    vanityPersistentShift_ = (outputSize > static_cast<uint64_t>(PRIV_SEQ_THREAD_STEPS))
+                        ? (outputSize - static_cast<uint64_t>(PRIV_SEQ_THREAD_STEPS))
+                        : 0ull;
+                    err = cuda_vanity_set_persistent_shift(vanityPersistentShift_);
+                    if (err != cudaSuccess) {
+                        throw runtime_error(cudaGetErrorString(err));
+                    }
+                    vanityPersistentShiftReady_ = true;
+                }
             }
-            if (err == cudaSuccess) {
-                err = cuda_vanity_set_step_increment(seqStep, _dev_precomp, pitch);
-            }
-            if (err != cudaSuccess) {
-                cudaFree(devStart);
-                throw runtime_error(cudaGetErrorString(err));
+
+            if (useVanityStartBuffers_ && devVanityStartX_ != nullptr && devVanityStartY_ != nullptr && !vanityStartBuffersReady_) {
+                precompute_vanity_starts_kernel<<<dim3(BLOCK_NUMBER), dim3(BLOCK_THREADS)>>>(
+                    devVanityStartX_, devVanityStartY_, PRIV_SEQ_THREAD_STEPS);
+                err = cudaGetLastError();
+                if (err != cudaSuccess) {
+                    throw runtime_error(cudaGetErrorString(err));
+                }
+                vanityStartBuffersReady_ = true;
             }
         }
-        err = launchWorkerPrivSeq(dim3(BLOCK_NUMBER), dim3(BLOCK_THREADS), isResult_, deviceResult_, walkMode, devStart, seqStep);
+
+        uint64_t* startX = (useVanityStartBuffers_ && devVanityStartX_ != nullptr && devVanityStartY_ != nullptr) ? devVanityStartX_ : nullptr;
+        uint64_t* startY = (startX != nullptr) ? devVanityStartY_ : nullptr;
+        err = launchWorkerPrivSeq(dim3(BLOCK_NUMBER), dim3(BLOCK_THREADS), isResult_, deviceResult_, walkMode, devPrivSeqStart_, seqStep, startX, startY);
         if (err != cudaSuccess) {
-            cudaFree(devStart);
             throw runtime_error(cudaGetErrorString(err));
         }
         finishKernel(true);
-        cudaFree(devStart);
+
+        if (persistentCompressedOnly && vanityStartBuffersReady_) {
+            if (vanityPersistentShift_ != 0ull) {
+                err = cuda_vanity_apply_persistent_shift(devVanityStartX_, devVanityStartY_, dim3(BLOCK_NUMBER), dim3(BLOCK_THREADS));
+                if (err != cudaSuccess) {
+                    throw runtime_error(cudaGetErrorString(err));
+                }
+            }
+        }
+        else {
+            vanityStartBuffersReady_ = false;
+        }
+
         processed_ += count;
         counterTotal.fetch_add(count, std::memory_order_relaxed);
     }
@@ -2336,6 +2517,15 @@ private:
     char* devLines_[2] = { nullptr, nullptr };
     uint32_t* devIndexes_[2] = { nullptr, nullptr };
     uint32_t* devIterations_ = nullptr;
+    uint8_t* devPrivSeqStart_ = nullptr;
+    uint64_t* devVanityStartX_ = nullptr;
+    uint64_t* devVanityStartY_ = nullptr;
+    bool useVanityStartBuffers_ = false;
+    bool vanityStartBuffersReady_ = false;
+    bool vanityPersistentShiftReady_ = false;
+    uint64_t vanityPersistentShift_ = 0;
+    uint64_t vanitySeqStep_ = 0;
+    int vanityWalkMode_ = 0;
     vector<uint32_t> iterationsHost_;
     uint64_t processed_ = 0;
     uint32_t found_ = 0;
@@ -3110,7 +3300,46 @@ struct DeviceRunResult {
     uint32_t found = 0;
 };
 
-static DeviceRunResult runDevice(size_t ordinal, size_t deviceCount, SharedLineSource* sharedLines, FILE* outputFile)
+class DeviceInitBarrier {
+public:
+    explicit DeviceInitBarrier(size_t total) : total_(total) {}
+
+    bool arriveAndWait()
+    {
+        unique_lock<mutex> lock(mutex_);
+        if (failed_) {
+            return false;
+        }
+        ++ready_;
+        if (ready_ == total_) {
+            if (!printed_) {
+                printSequentialRangeBounds();
+                printed_ = true;
+            }
+            cv_.notify_all();
+            return true;
+        }
+        cv_.wait(lock, [&]() { return failed_ || ready_ >= total_; });
+        return !failed_;
+    }
+
+    void fail()
+    {
+        lock_guard<mutex> lock(mutex_);
+        failed_ = true;
+        cv_.notify_all();
+    }
+
+private:
+    mutex mutex_;
+    condition_variable cv_;
+    size_t total_ = 0;
+    size_t ready_ = 0;
+    bool failed_ = false;
+    bool printed_ = false;
+};
+
+static DeviceRunResult runDevice(size_t ordinal, size_t deviceCount, SharedLineSource* sharedLines, FILE* outputFile, DeviceInitBarrier* initBarrier)
 {
     DeviceRunResult result;
     auto cleanup = []() {
@@ -3124,6 +3353,9 @@ static DeviceRunResult runDevice(size_t ordinal, size_t deviceCount, SharedLineS
         if (!checkDevice(DeviceList[ordinal])) {
             result.cudaStatus = cudaErrorInvalidDevice;
             result.error = "device initialization failed";
+            if (initBarrier != nullptr) {
+                initBarrier->fail();
+            }
             cleanup();
             return result;
         }
@@ -3131,11 +3363,20 @@ static DeviceRunResult runDevice(size_t ordinal, size_t deviceCount, SharedLineS
         if (cudaStatus != cudaSuccess) {
             result.cudaStatus = cudaStatus;
             result.error = string("CUDA prepare failed: ") + cudaGetErrorString(cudaStatus);
+            if (initBarrier != nullptr) {
+                initBarrier->fail();
+            }
             cleanup();
             return result;
         }
 
         GpuRuntimeContext processor(static_cast<int>(ordinal), static_cast<int>(deviceCount), outputFile);
+        if (initBarrier != nullptr && !initBarrier->arriveAndWait()) {
+            result.cudaStatus = cudaErrorUnknown;
+            result.error = "device initialization failed";
+            cleanup();
+            return result;
+        }
         if (sharedLines != nullptr) {
             processSharedInputs(*sharedLines, processor);
         }
@@ -3157,6 +3398,9 @@ static DeviceRunResult runDevice(size_t ordinal, size_t deviceCount, SharedLineS
     catch (const exception& ex) {
         result.cudaStatus = cudaErrorUnknown;
         result.error = ex.what();
+        if (initBarrier != nullptr) {
+            initBarrier->fail();
+        }
     }
     cleanup();
     return result;
@@ -3225,6 +3469,7 @@ int main(int argc, char** argv)
         vector<thread> workers;
         workers.reserve(DeviceList.size());
         unique_ptr<SharedLineSource> sharedLines;
+        DeviceInitBarrier initBarrier(DeviceList.size());
         const bool streamMode = !isRandom && !seqMode && MaskList.empty() && MaskFileList.empty();
         if (streamMode && DeviceList.size() > 1) {
             if (!inputFiles.empty()) {
@@ -3236,7 +3481,7 @@ int main(int argc, char** argv)
         }
         for (size_t i = 0; i < DeviceList.size(); ++i) {
             workers.emplace_back([&, i]() {
-                results[i] = runDevice(i, DeviceList.size(), sharedLines.get(), outputFile);
+                results[i] = runDevice(i, DeviceList.size(), sharedLines.get(), outputFile, &initBarrier);
             });
         }
         for (auto& worker : workers) {
