@@ -405,6 +405,47 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffff -c c -hash 751e76e8199196d454941
 
 Use CPU post-checks when you need extra verification after a GPU-side hit. They add CPU work, so they are not a free speed feature.
 
+### Bloom Filters
+
+`brainflayer-CUDA` accepts Bloom filters compatible with the formats used by [brainflayer](https://github.com/ryancdotorg/brainflayer) and [Mnemonic_CPP](https://github.com/XopMC/Mnemonic_CPP).
+
+You can load several Bloom filters by repeating `-bf`:
+
+```powershell
+Brainflayer-CUDA.exe -i brain.txt -bf wallet_a.blf -bf wallet_b.blf -c c
+```
+
+### XOR Filters And XorFilter
+
+Create XOR filters with [XorFilter](https://github.com/XopMC/XorFilter), then load them directly into `brainflayer-CUDA`.
+
+Recommended workflow:
+
+- `.xor_u` is the only XOR format recommended as a final standalone filter without extra CPU confirmation.
+- `.xor_c`, `.xor_uc`, and `.xor_hc` are compact GPU prefilters. They save GPU memory and are useful for broad scans, but they should be confirmed by a full `.xor_u` CPU check.
+- For `.xor_c`, `.xor_uc`, and `.xor_hc`, add `-xx wallet.xor_u` so GPU survivors are rechecked on the CPU against an uncompressed `.xor_u` filter.
+- Several XOR filters of the same family can be loaded by repeating the corresponding flag.
+
+Practical example:
+
+```powershell
+Brainflayer-CUDA.exe -i brain.txt -xc wallet.xor_c -xx wallet.xor_u -c cus
+```
+
+Multi-filter example:
+
+```powershell
+Brainflayer-CUDA.exe -i brain.txt -xc wallet_a.xor_c -xc wallet_b.xor_c -xx wallet_master.xor_u -c cus
+```
+
+For private-key ranges the same filter flow works with `-priv`:
+
+```powershell
+Brainflayer-CUDA.exe -priv -start START -end END -xc wallet.xor_c -xx wallet.xor_u -c c
+```
+
+This pattern gives a compact GPU filter at the front and a precise CPU re-check at the end.
+
 ## Target Types
 
 `-c` selects which target families are calculated and checked. Several letters can be used together:
@@ -896,6 +937,47 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffff -c c -hash 751e76e8199196d454941
 ```
 
 Проверка на процессоре нужна, когда после совпадения на видеокарте требуется дополнительная проверка. Она добавляет работу процессору, поэтому это не бесплатное ускорение.
+
+### Bloom Фильтры
+
+`brainflayer-CUDA` принимает Bloom-фильтры, совместимые с форматами, которые используют [brainflayer](https://github.com/ryancdotorg/brainflayer) и [Mnemonic_CPP](https://github.com/XopMC/Mnemonic_CPP).
+
+Можно подключать несколько Bloom-фильтров, просто повторяя `-bf`:
+
+```powershell
+Brainflayer-CUDA.exe -i brain.txt -bf wallet_a.blf -bf wallet_b.blf -c c
+```
+
+### XOR Фильтры И XorFilter
+
+XOR-фильтры создавайте через [XorFilter](https://github.com/XopMC/XorFilter), после этого их можно сразу подключать в `brainflayer-CUDA`.
+
+Рекомендуемая схема:
+
+- `.xor_u` - единственный XOR-формат, который можно использовать как финальный фильтр без дополнительной проверки на процессоре.
+- `.xor_c`, `.xor_uc` и `.xor_hc` - компактные предварительные фильтры для видеокарты. Они экономят память видеокарты и удобны для широкого поиска, но их лучше подтверждать полной проверкой `.xor_u` на процессоре.
+- Для `.xor_c`, `.xor_uc` и `.xor_hc` добавляйте `-xx wallet.xor_u`, чтобы кандидаты после видеокарты перепроверялись на процессоре по несжатому `.xor_u`.
+- Несколько XOR-фильтров одного семейства можно подключать повторением соответствующего флага.
+
+Практический пример:
+
+```powershell
+Brainflayer-CUDA.exe -i brain.txt -xc wallet.xor_c -xx wallet.xor_u -c cus
+```
+
+Пример с несколькими XOR-фильтрами:
+
+```powershell
+Brainflayer-CUDA.exe -i brain.txt -xc wallet_a.xor_c -xc wallet_b.xor_c -xx wallet_master.xor_u -c cus
+```
+
+Для диапазонов приватов / приватных ключей схема с фильтрами такая же, только добавляется `-priv`:
+
+```powershell
+Brainflayer-CUDA.exe -priv -start START -end END -xc wallet.xor_c -xx wallet.xor_u -c c
+```
+
+Такой шаблон дает компактный фильтр на видеокарте на входе и точную проверку на процессоре на выходе.
 
 ## Типы целей
 
