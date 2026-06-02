@@ -26,20 +26,28 @@ You are fully responsible for how you use this software. The author is not respo
 
 ## Screenshots
 
-<p>
-  <img src="./docs/media/help.png" alt="Command help" width="1040">
-</p>
+**Help screen.** Shows the main CLI sections: default brainwallet mode, `-priv`, input sources, filters, targets, save mode, and GPU parameters.
 
 <p>
-  <img src="./docs/media/gpu-filter.png" alt="GPU start and target checks" width="1040">
+  <img src="./docs/media/help.png" alt="Command help">
 </p>
 
-<p>
-  <img src="./docs/media/statistics.png" alt="Speed and statistics" width="1040">
-</p>
+**Startup and GPU preparation.** Shows CUDA device selection, blocks and threads, hash matcher loading, filters, and sequential range output.
 
 <p>
-  <img src="./docs/media/found.png" alt="Found test result" width="1040">
+  <img src="./docs/media/gpu-filter.png" alt="GPU start and target checks">
+</p>
+
+**Speed and live statistics.** Shows full-grid `-priv -c c` sequential speed on GPU 0, without manual `-b` / `-t` limits.
+
+<p>
+  <img src="./docs/media/statistics.png" alt="Speed and statistics">
+</p>
+
+**Found test result.** Shows a deterministic private key `1` hit for the compressed BTC hash160 test target.
+
+<p>
+  <img src="./docs/media/found.png" alt="Found test result">
 </p>
 
 ## What This Program Does
@@ -493,12 +501,12 @@ SOLANA: BvDQDEgq3kbNT7VQFQRQPjc4Ta5k7d5s7GdcgoKnq3KG
 
 Автор: Михаил Хорошавин, также известен как `XopMC`
 
-`brainflayer-CUDA` - это программа на CUDA для проверки кандидатов brainwallet и обычных закрытых ключей по криптовалютным целям.
+`brainflayer-CUDA` - это программа на CUDA для проверки кандидатов brainwallet и обычных приватов / приватных ключей по криптовалютным целям.
 
 В публичной версии есть два режима:
 
 - *brainwallet* включен по умолчанию;
-- `-priv` включает режим обычных закрытых ключей.
+- `-priv` включает режим обычных приватов / приватных ключей.
 
 В релизе оставлено только то, что нужно для практической работы: файлы и поток ввода, последовательные диапазоны, перебор по маске на видеокарте, Bloom и XOR фильтры, точная проверка по хешу, несколько видеокарт, живая статистика скорости и сохранение адресов.
 
@@ -510,20 +518,28 @@ SOLANA: BvDQDEgq3kbNT7VQFQRQPjc4Ta5k7d5s7GdcgoKnq3KG
 
 ## Скриншоты
 
-<p>
-  <img src="./docs/media/help.png" alt="Справка" width="1040">
-</p>
+**Справка по запуску.** Показывает основные разделы командной строки: режим brainwallet по умолчанию, `-priv`, источники ввода, фильтры, цели, сохранение и параметры видеокарт.
 
 <p>
-  <img src="./docs/media/gpu-filter.png" alt="Запуск видеокарты и проверка цели" width="1040">
+  <img src="./docs/media/help.png" alt="Справка">
 </p>
 
-<p>
-  <img src="./docs/media/statistics.png" alt="Скорость и статистика" width="1040">
-</p>
+**Запуск и подготовка видеокарты.** Видно выбранную CUDA-карту, блоки и потоки, загрузку точной цели, фильтры и вывод границ последовательного диапазона.
 
 <p>
-  <img src="./docs/media/found.png" alt="Найденный тестовый результат" width="1040">
+  <img src="./docs/media/gpu-filter.png" alt="Запуск видеокарты и проверка цели">
+</p>
+
+**Скорость и живая статистика.** Полная сетка для `-priv -c c` на GPU 0, без ручного ограничения через `-b` / `-t`.
+
+<p>
+  <img src="./docs/media/statistics.png" alt="Скорость и статистика">
+</p>
+
+**Тестовое найденное совпадение.** Проверочный запуск, где приватный ключ `1` дает совпадение по compressed BTC hash160.
+
+<p>
+  <img src="./docs/media/found.png" alt="Найденный тестовый результат">
 </p>
 
 ## Что делает программа
@@ -637,7 +653,7 @@ Generator.exe | Brainflayer-CUDA.exe -sha256 -iter 1,2,4 -c c -bf targets.blf
 Brainflayer-CUDA.exe -priv -start 1 -end 1 -device 0 -c c -hash 751e76e8199196d454941c45d1b3a323f1433bd6
 ```
 
-Этот пример проверяет закрытый ключ `1` по compressed BTC hash160.
+Этот пример проверяет приватный ключ `1` по compressed BTC hash160.
 
 ## Аргументы запуска
 
@@ -712,15 +728,15 @@ Brainflayer-CUDA.exe -hex -i hex_brain.txt -sha256 -c u -bf targets.blf -save
 
 Без `-hex` строка используется как обычный текст.
 
-## Режим закрытых ключей
+## Режим приватов / приватных ключей
 
-Флаг `-priv` переключает программу в режим обычных закрытых ключей.
+Флаг `-priv` переключает программу в режим обычных приватов / приватных ключей.
 
 ```powershell
 Brainflayer-CUDA.exe -priv -hex -i keys.txt -c c -bf targets.blf
 ```
 
-В этом режиме входные кандидаты являются закрытыми ключами, а не строками brainwallet.
+В этом режиме входные кандидаты являются приватами / приватными ключами, а не строками brainwallet.
 
 `-priv` поддерживает:
 
@@ -729,13 +745,13 @@ Brainflayer-CUDA.exe -priv -hex -i keys.txt -c c -bf targets.blf
 - `-f DIR`;
 - `-hex`;
 - последовательные диапазоны;
-- случайные закрытые ключи.
+- случайные приваты / приватные ключи.
 
 ### Быстрый последовательный путь для secp256k1
 
 В последовательном режиме `-priv` используются оптимизированные CUDA-ядра. Для чистых secp256k1-целей программа может запускать специализированные ядра вместо общего пути для разных кривых.
 
-В этом режиме закрытые ключи генерируются на видеокарте. Процессор передает параметры диапазона и получает найденные результаты; он не отправляет на видеокарту каждый ключ отдельно. Именно этот режим подходит для больших диапазонов закрытых ключей.
+В этом режиме приваты генерируются на видеокарте. Процессор передает параметры диапазона и получает найденные результаты; он не отправляет на видеокарту каждый приватный ключ отдельно. Именно этот режим подходит для больших диапазонов приватов / приватных ключей.
 
 Типичные быстрые варианты:
 
@@ -768,7 +784,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c x -bf xpoint.blf
 -n N             ограничение количества кандидатов
 ```
 
-Для `-priv` значения являются 256-битными закрытыми ключами и печатаются как 64 hex-символа.
+Для `-priv` значения являются 256-битными приватами / приватными ключами и печатаются как 64 hex-символа.
 
 Для режима brainwallet значения являются 2048-битными точками и печатаются как 512 hex-символов.
 
@@ -788,7 +804,7 @@ Brainflayer-CUDA.exe -start 1 -end ffff -sha256 -iter 1,2,4 -c c -bf targets.blf
 Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf targets.blf
 ```
 
-В режиме `-priv` каждая выбранная видеокарта получает свою подпоследовательность закрытых ключей. Например, с `-step 1 -device 0,1` GPU 0 начинает с `start`, GPU 1 начинает с `start + 1`, а эффективный шаг на каждой видеокарте становится `2`.
+В режиме `-priv` каждая выбранная видеокарта получает свою подпоследовательность приватов / приватных ключей. Например, с `-step 1 -device 0,1` GPU 0 начинает с `start`, GPU 1 начинает с `start + 1`, а эффективный шаг на каждой видеокарте становится `2`.
 
 ## Перебор по маске
 
@@ -948,7 +964,7 @@ Brainflayer-CUDA.exe -i brain.txt -c c -bf targets.blf -save -silent -o found.tx
 - держите большие входные файлы на быстром диске;
 - основной поиск делайте через фильтры на видеокарте, а проверку на процессоре включайте только когда она действительно нужна.
 
-Для быстрой проверки compressed secp256k1 по диапазону закрытых ключей обычная форма запуска такая:
+Для быстрой проверки compressed secp256k1 по диапазону приватов / приватных ключей обычная форма запуска такая:
 
 ```powershell
 Brainflayer-CUDA.exe -priv -start START -end END -device 0,1 -c c -bf btc_compressed.blf -save -silent -o found.txt
