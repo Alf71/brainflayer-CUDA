@@ -1,0 +1,130 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CudaCompile Include="Kernel.cu" />
+    <CudaCompile Include="Kernels\WorkerMask.cu" />
+    <CudaCompile Include="Kernels\WorkerPRIV_seq_new.cu" />
+    <CudaCompile Include="Kernels\WorkerPRIV_vanity.cu" />
+    <CudaCompile Include="lib\hash\sha3_ver3.cuh" />
+    <CudaCompile Include="main.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="filter.cpp" />
+    <ClCompile Include="lib\base58.c" />
+    <ClCompile Include="lib\Int.cpp" />
+    <ClCompile Include="lib\IntGroup.cpp" />
+    <ClCompile Include="lib\IntMod.cpp" />
+    <ClCompile Include="lib\Point.cpp" />
+    <ClCompile Include="lib\SECP256K1.cpp" />
+    <ClCompile Include="lib\util.cpp" />
+    <ClCompile Include="lib\hash\ripemd160.cpp" />
+    <ClCompile Include="lib\hash\ripemd160_sse.cpp" />
+    <ClCompile Include="lib\hash\sha256.cpp" />
+    <ClCompile Include="lib\hash\sha256_sse.cpp" />
+    <ClCompile Include="lib\V\VBase58.cpp" />
+    <ClCompile Include="sr25519-donna-32bit\dot.cpp">
+      <Filter>sr25519</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="filter.h" />
+    <ClInclude Include="secp_custom.cuh" />
+    <ClInclude Include="Kernel.cuh" />
+    <ClInclude Include="lib\base58.h" />
+    <ClInclude Include="lib\CudaHashLookup.h" />
+    <ClInclude Include="lib\Int.h" />
+    <ClInclude Include="lib\IntGroup.h" />
+    <ClInclude Include="lib\Point.h" />
+    <ClInclude Include="lib\SECP256k1.h" />
+    <ClInclude Include="lib\secp256k1\secp256k1_field64.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_modinv32.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_precomp_big_custom.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_scalar64.cuh" />
+    <ClInclude Include="lib\hash\sha3.cuh" />
+    <ClInclude Include="lib\util.h" />
+    <ClInclude Include="lib\hash\GPUHash.cuh" />
+    <ClInclude Include="lib\hash\ripemd160.h" />
+    <ClInclude Include="lib\hash\sha256.h" />
+    <ClInclude Include="lib\secp256k1\secp256k1.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_batch_impl.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_common.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_field.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_group.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec4.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec8.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec_custom.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_scalar.cuh" />
+    <ClInclude Include="lib\V\VBase58.h" />
+    <ClInclude Include="uint128_t.cuh" />
+    <ClInclude Include="xor_filter.cuh" />
+    <ClInclude Include="sr25519-donna-32bit\dot.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\merlin.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ristretto255.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\sha2.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\sr25519.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\sr25519-hash.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\sr25519-randombytes.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\vrf.h">
+      <Filter>sr25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\curve25519-donna-32bit.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\curve25519-donna-helpers.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-32bit-tables.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-basepoint-table.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-batchverify.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-impl-base.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-portable.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-hash-custom.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-randombytes.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\modm-donna-32bit.h">
+      <Filter>sr25519\ed25519</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="sr25519">
+      <UniqueIdentifier>{8541eb5d-d7da-4f5d-a35f-3272105d16d6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="sr25519\ed25519">
+      <UniqueIdentifier>{da364126-ed9d-4421-9f0a-d5d9d604cdc0}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

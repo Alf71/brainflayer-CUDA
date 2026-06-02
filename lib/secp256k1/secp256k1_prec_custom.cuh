@@ -1,0 +1,1 @@
+__device__  secp256k1_ge_storage prec[ECMULT_GEN_PREC_N][ECMULT_GEN_PREC_G];

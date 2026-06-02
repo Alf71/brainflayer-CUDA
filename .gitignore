@@ -1,0 +1,49 @@
+# Build output
+.vs/
+x64/
+Brainflayer-CUDA/x64/
+build/
+bin/
+dist/
+
+# Runtime output and local test data
+result.txt
+full.blf
+*.blf
+*.xor_c
+*.xor_u
+*.xor_uc
+*.xor_hc
+*.xc
+*.xu
+*.xuc
+*.xhc
+*.log
+*.tmp
+
+# Visual Studio / CUDA artifacts
+*.obj
+*.pdb
+*.idb
+*.ilk
+*.iobj
+*.ipdb
+*.lib
+*.exp
+*.tlog
+*.lastbuildstate
+*.recipe
+*.cache
+*.deps
+*.user
+*.suo
+
+# Release archives
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# OS files
+Thumbs.db
+.DS_Store

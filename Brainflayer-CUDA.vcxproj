@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{8049E85C-523D-4AB5-98D9-721FEC1C132F}</ProjectGuid>
+    <RootNamespace>BrainflayerCUDA</RootNamespace>
+    <ProjectName>Brainflayer-CUDA</ProjectName>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <CudaToolkitCustomDir>C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8</CudaToolkitCustomDir>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.8.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <CodeAnalysisRuleSet>..\RuleSet1.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <CodeAnalysisRuleSet>..\RuleSet1.ruleset</CodeAnalysisRuleSet>
+    <LinkIncremental>false</LinkIncremental>
+    <IgnoreImportLibrary>true</IgnoreImportLibrary>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;WIN64;_DEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <CudaCompile>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
+      <CodeGeneration>compute_61,sm_61; compute_75,sm_75; compute_86,sm_86; compute_89,sm_89; compute_120,sm_120</CodeGeneration>
+      <GenerateRelocatableDeviceCode>true</GenerateRelocatableDeviceCode>
+      <Include>$(ProjectDir).;$(ProjectDir)Kernels;$(ProjectDir)lib;$(ProjectDir)lib\hash;$(ProjectDir)lib\secp256k1;$(ProjectDir)lib\V;$(ProjectDir)sr25519-donna-32bit;%(Include)</Include>
+      <AdditionalOptions>--extended-lambda %(AdditionalOptions)</AdditionalOptions>
+    </CudaCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;WIN64;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <EnableParallelCodeGeneration>true</EnableParallelCodeGeneration>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <LanguageStandard_C>Default</LanguageStandard_C>
+      <EnableModules>true</EnableModules>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <SubSystem>Console</SubSystem>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;cudadevrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <CudaCompile>
+      <TargetMachinePlatform>64</TargetMachinePlatform>
+      <CodeGeneration>compute_61,sm_61; compute_75,sm_75; compute_86,sm_86; compute_89,sm_89; compute_120,sm_120</CodeGeneration>
+      <FastMath>false</FastMath>
+      <SplitCompile>MaxThreads</SplitCompile>
+      <GenerateRelocatableDeviceCode>true</GenerateRelocatableDeviceCode>
+      <Include>$(ProjectDir).;$(ProjectDir)Kernels;$(ProjectDir)lib;$(ProjectDir)lib\hash;$(ProjectDir)lib\secp256k1;$(ProjectDir)lib\V;$(ProjectDir)sr25519-donna-32bit;%(Include)</Include>
+      <AdditionalOptions>-Xcompiler "/MP" -O3 --extended-lambda %(AdditionalOptions)</AdditionalOptions>
+    </CudaCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CudaCompile Include="big_int\BigIntFunc.cu" />
+    <CudaCompile Include="FilterFunc.cu" />
+    <CudaCompile Include="HashFunc.cu" />
+    <CudaCompile Include="IcpFunc.cu" />
+    <CudaCompile Include="Kernels\Kernel.cu" />
+    <CudaCompile Include="Kernels\WorkerBrain.cu" />
+    <CudaCompile Include="Kernels\WorkerBrain_seq.cu" />
+    <CudaCompile Include="Kernels\WorkerMask.cu" />
+    <CudaCompile Include="Kernels\WorkerPRIV.cu" />
+    <CudaCompile Include="Kernels\WorkerPRIV_seq_new.cu" />
+    <CudaCompile Include="Kernels\WorkerPRIV_vanity.cu" />
+    <CudaCompile Include="lib\hash\GPUHash.cu" />
+    <CudaCompile Include="lib\hash\sha3_ver3.cuh" />
+    <CudaCompile Include="lib\secp256k1\GPUConstants.cu" />
+    <CudaCompile Include="lib\secp256k1\secp256k1.cu" />
+    <CudaCompile Include="main.cu" />
+    <CudaCompile Include="SaveFunc.cu" />
+    <CudaCompile Include="sr25519-donna-32bit\ed25519-donna\ed25519.cu" />
+    <CudaCompile Include="sr25519-donna-32bit\sr25519.cu" />
+    <CudaCompile Include="TonFunc.cu" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="filter.h" />
+    <ClInclude Include="secp_custom.cuh" />
+    <ClInclude Include="Kernel.cuh" />
+    <ClInclude Include="lib\base58.h" />
+    <ClInclude Include="lib\CudaHashLookup.h" />
+    <ClInclude Include="lib\Int.h" />
+    <ClInclude Include="lib\IntGroup.h" />
+    <ClInclude Include="lib\Point.h" />
+    <ClInclude Include="lib\SECP256k1.h" />
+    <ClInclude Include="lib\secp256k1\secp256k1_field64.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_modinv32.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_precomp_big_custom.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_scalar64.cuh" />
+    <ClInclude Include="lib\hash\sha3.cuh" />
+    <ClInclude Include="lib\util.h" />
+    <ClInclude Include="lib\hash\GPUHash.cuh" />
+    <ClInclude Include="lib\hash\ripemd160.h" />
+    <ClInclude Include="lib\hash\sha256.h" />
+    <ClInclude Include="lib\secp256k1\secp256k1.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_batch_impl.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_common.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_field.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_group.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec4.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec8.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_prec_custom.cuh" />
+    <ClInclude Include="lib\secp256k1\secp256k1_scalar.cuh" />
+    <ClInclude Include="lib\V\VBase58.h" />
+    <ClInclude Include="sr25519-donna-32bit\dot.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\curve25519-donna-32bit.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\curve25519-donna-helpers.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-32bit-tables.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-basepoint-table.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-batchverify.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-impl-base.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna-portable.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-donna.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-hash-custom.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519-randombytes.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\ed25519.h" />
+    <ClInclude Include="sr25519-donna-32bit\ed25519-donna\modm-donna-32bit.h" />
+    <ClInclude Include="sr25519-donna-32bit\merlin.h" />
+    <ClInclude Include="sr25519-donna-32bit\ristretto255.h" />
+    <ClInclude Include="sr25519-donna-32bit\sha2.h" />
+    <ClInclude Include="sr25519-donna-32bit\sr25519-hash.h" />
+    <ClInclude Include="sr25519-donna-32bit\sr25519-randombytes.h" />
+    <ClInclude Include="sr25519-donna-32bit\sr25519.h" />
+    <ClInclude Include="sr25519-donna-32bit\vrf.h" />
+    <ClInclude Include="uint128_t.cuh" />
+    <ClInclude Include="xor_filter.cuh" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="filter.cpp" />
+    <ClCompile Include="lib\base58.c" />
+    <ClCompile Include="lib\Int.cpp" />
+    <ClCompile Include="lib\IntGroup.cpp" />
+    <ClCompile Include="lib\IntMod.cpp" />
+    <ClCompile Include="lib\Point.cpp" />
+    <ClCompile Include="lib\SECP256K1.cpp" />
+    <ClCompile Include="lib\util.cpp" />
+    <ClCompile Include="lib\hash\ripemd160.cpp" />
+    <ClCompile Include="lib\hash\ripemd160_sse.cpp" />
+    <ClCompile Include="lib\hash\sha256.cpp" />
+    <ClCompile Include="lib\hash\sha256_sse.cpp" />
+    <ClCompile Include="lib\V\VBase58.cpp" />
+    <ClCompile Include="sr25519-donna-32bit\dot.cpp" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+    <Import Project="$(VCTargetsPath)\BuildCustomizations\CUDA 12.8.targets" />
+  </ImportGroup>
+</Project>
