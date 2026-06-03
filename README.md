@@ -158,10 +158,10 @@ Generator.exe | Brainflayer-CUDA.exe -sha256 -iter 1,2,4 -c c -bf targets.blf
 Use `-hash` for deterministic tests or a small exact target.
 
 ```powershell
-Brainflayer-CUDA.exe -priv -start 1 -end 1 -device 0 -c c -hash 751e76e8199196d454941c45d1b3a323f1433bd6
+Brainflayer-CUDA.exe -priv -start 1 -end ffff -device 0 -c c -hash 751e76e8199196d454941c45d1b3a323f1433bd6
 ```
 
-This example checks private key `1` against the compressed BTC hash160.
+This example scans a small private-key range and finds private key `1` by the compressed BTC hash160.
 
 ## Command Line Arguments
 
@@ -272,6 +272,13 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c e -bf eth.blf
 Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c x -bf xpoint.blf
 ```
 
+`-em` enables secp256k1 endomorphism for private-key sequential and random runs. It checks additional equivalent secp256k1 points from the same base point and saves the restored real private key for the found address. In `-priv -random`, this mode is enabled automatically.
+
+```powershell
+Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c c -em -bf btc_compressed.blf
+Brainflayer-CUDA.exe -priv -random -c c -bf btc_compressed.blf
+```
+
 If you mix secp256k1 targets with ed25519, sr25519, TON, DOT, ICP, or other non-secp256k1 families, the program uses the compatible generic path.
 
 For maximum speed, select only the target letters you actually need. `-c c` is less work than `-c cus`, and `-c cus` is less work than a broad multi-family target set.
@@ -291,6 +298,7 @@ Sequential mode works in both default brainwallet mode and `-priv` mode.
 -random          Random branch inside the selected range.
 -n N             With -random: +/- span before changing the random point.
 -log FILE        Sequential progress snapshot, overwritten each round.
+-em              Enable secp256k1 endomorphism for -priv seq/random.
 ```
 
 For `-priv`, values are 256-bit private-key numbers and are printed as 64 hex characters.
@@ -313,7 +321,7 @@ With several GPUs, generated ranges are split across selected devices. The progr
 Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf targets.blf
 ```
 
-For `-priv`, each selected GPU receives a different private-key subsequence. With `-step 1 -device 0,1`, GPU 0 starts from `start`, GPU 1 starts from `start + 1`, and the effective per-GPU step becomes `2`.
+For `-priv`, each selected GPU receives a contiguous launch-size chunk. GPU 0 starts from the current checkpoint, GPU 1 starts from the next full chunk, and after the round the shared checkpoint moves forward by `chunk_size * gpu_count * step`. This makes resume logs easier to use and avoids duplicate work.
 
 `-log` is useful for long sequential runs. The file is overwritten once per round with the current point and step. Forward scans write `+POINT step 0xSTEP`, backward scans write `-POINT step 0xSTEP`, and `-both` writes both lines.
 
@@ -688,10 +696,10 @@ Generator.exe | Brainflayer-CUDA.exe -sha256 -iter 1,2,4 -c c -bf targets.blf
 `-hash` удобно использовать для тестов и проверки небольшого точного набора.
 
 ```powershell
-Brainflayer-CUDA.exe -priv -start 1 -end 1 -device 0 -c c -hash 751e76e8199196d454941c45d1b3a323f1433bd6
+Brainflayer-CUDA.exe -priv -start 1 -end ffff -device 0 -c c -hash 751e76e8199196d454941c45d1b3a323f1433bd6
 ```
 
-Этот пример проверяет приватный ключ `1` по compressed BTC hash160.
+Эта команда проверяет небольшой диапазон и находит приват `1` по compressed BTC hash160.
 
 ## Аргументы запуска
 
@@ -802,6 +810,13 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c e -bf eth.blf
 Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c x -bf xpoint.blf
 ```
 
+`-em` включает эндоморфизм secp256k1 для последовательного и случайного перебора приватов. Программа проверяет дополнительные равнозначные точки secp256k1 от одной базовой точки и при находке сохраняет восстановленный настоящий приват для найденного адреса. В режиме `-priv -random` это включается автоматически.
+
+```powershell
+Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c c -em -bf btc_compressed.blf
+Brainflayer-CUDA.exe -priv -random -c c -bf btc_compressed.blf
+```
+
 Если в одном запуске смешать secp256k1-цели с ed25519, sr25519, TON, DOT, ICP или другими несовместимыми семействами, программа перейдет на общий совместимый вариант.
 
 Для максимальной скорости выбирайте только те буквы `-c`, которые действительно нужны. `-c c` легче, чем `-c cus`, а `-c cus` легче, чем широкий набор разных семейств.
@@ -821,6 +836,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c x -bf xpoint.blf
 -random          случайные значения внутри диапазона
 -n N             с -random: участок +/- перед сменой случайной точки
 -log FILE        снимок текущей точки последовательного перебора
+-em              включить эндоморфизм secp256k1 для -priv seq/random
 ```
 
 Для `-priv` значения являются 256-битными приватами / приватными ключами и печатаются как 64 hex-символа.
@@ -843,7 +859,7 @@ Brainflayer-CUDA.exe -start 1 -end ffff -sha256 -iter 1,2,4 -c c -bf targets.blf
 Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf targets.blf
 ```
 
-В режиме `-priv` каждая выбранная видеокарта получает свою подпоследовательность приватов / приватных ключей. Например, с `-step 1 -device 0,1` GPU 0 начинает с `start`, GPU 1 начинает с `start + 1`, а эффективный шаг на каждой видеокарте становится `2`.
+В режиме `-priv` каждая выбранная видеокарта получает цельный чанк прежнего размера запуска. GPU 0 начинает с текущей точки, GPU 1 - со следующего полного чанка, а после раунда общая точка сдвигается на `chunk_size * gpu_count * step`. Так удобнее продолжать работу по `-log`, и видеокарты не повторяют один и тот же участок.
 
 `-log` удобен для долгого последовательного перебора. Файл перезаписывается один раз за раунд и содержит текущую точку и шаг. Обычный проход пишет `+POINT step 0xSTEP`, `-back` пишет `-POINT step 0xSTEP`, а `-both` пишет обе строки.
 

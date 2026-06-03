@@ -306,6 +306,146 @@ static bool cpu_postcheck(const uint32_t hash_words[20])
     return find_in_bloom(h);
 }
 
+static inline int cmp_be(const uint8_t* x, const uint8_t* y, size_t n) {
+    for (size_t i = 0; i < n; ++i) { if (x[i] != y[i]) return (x[i] < y[i]) ? -1 : 1; }
+    return 0;
+}
+
+static inline void sub_be(const uint8_t* x, const uint8_t* y, uint8_t* out, size_t n) {
+    int b = 0; for (size_t i = n; i-- > 0;) { int t = (int)x[i] - (int)y[i] - b; if (t < 0) { t += 256; b = 1; } else b = 0; out[i] = (uint8_t)t; }
+}
+
+static inline void add_be(const uint8_t* x, const uint8_t* y, uint8_t* out, size_t n) {
+    int c = 0; for (size_t i = n; i-- > 0;) { int t = (int)x[i] + (int)y[i] + c; out[i] = (uint8_t)(t & 0xFF); c = t >> 8; }
+}
+
+static const uint8_t SECP256K1_N[32] = {
+    0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFE,
+    0xBA,0xAE,0xDC,0xE6,0xAF,0x48,0xA0,0x3B,0xBF,0xD2,0x5E,0x8C,0xD0,0x36,0x41,0x41
+};
+static const uint8_t SECP256K1_LAMBDA[32] = {
+    0x53,0x63,0xAD,0x4C,0xC0,0x5C,0x30,0xE0,0xA5,0x26,0x1C,0x02,0x88,0x12,0x64,0x5A,
+    0x12,0x2E,0x22,0xEA,0x20,0x81,0x66,0x78,0xDF,0x02,0x96,0x7C,0x1B,0x23,0xBD,0x72
+};
+static const uint8_t SECP256K1_LAMBDA2[32] = {
+    0xAC,0x9C,0x52,0xB3,0x3F,0xA3,0xAD,0x48,0x58,0xA6,0x05,0x9F,0x6D,0x6C,0x42,0x98,
+    0xD4,0xE4,0x4B,0x54,0x91,0x04,0x33,0xB1,0xF8,0xC0,0x06,0x2D,0xD3,0x1E,0x8C,0xC0
+};
+
+static void scalar_mult_mod_n_256(const uint8_t k_be[32], const uint8_t mult_be[32], uint8_t out_be[32]) {
+    uint8_t r[33] = {0}, t[33];
+    uint8_t n_pad[33]; memcpy(n_pad, SECP256K1_N, 32); n_pad[32] = 0;
+    uint8_t mult_pad[33]; memcpy(mult_pad, mult_be, 32); mult_pad[32] = 0;
+    for (int bi = 0; bi < 256; bi++) {
+        int by = bi / 8, br = 7 - (bi % 8);
+        int set = (k_be[by] >> br) & 1;
+        add_be(r, r, t, 33);
+        memcpy(r, t, 33);
+        if (set) {
+            add_be(r, mult_pad, t, 33);
+            memcpy(r, t, 33);
+        }
+        while (cmp_be(r, n_pad, 33) >= 0) {
+            sub_be(r, n_pad, t, 33);
+            memcpy(r, t, 33);
+        }
+    }
+    memcpy(out_be, r, 32);
+}
+
+static inline bool is_zero_be32(const uint8_t* x) {
+    for (int i = 0; i < 32; ++i) {
+        if (x[i] != 0) return false;
+    }
+    return true;
+}
+
+static inline void negate_mod_n_256(const uint8_t in_be[32], uint8_t out_be[32]) {
+    if (is_zero_be32(in_be)) {
+        memset(out_be, 0, 32);
+        return;
+    }
+    sub_be(SECP256K1_N, in_be, out_be, 32);
+}
+
+static inline bool decode_endo_tag(uint8_t type, uint8_t& base_type, uint8_t& lambda_sel, bool& negate) {
+    if (type < ENDO_TAG_BASE) return false;
+    const uint8_t code = (uint8_t)(type - ENDO_TAG_BASE);
+    const uint8_t group = (uint8_t)(code / ENDO_GROUP_STRIDE);
+    const uint8_t variant = (uint8_t)(code % ENDO_GROUP_STRIDE);
+    if (group > ENDO_GROUP_XPOINT) return false;
+    if (variant > ENDO_VARIANT_ENDO2_NEG) return false;
+
+    switch (group) {
+    case ENDO_GROUP_COMPRESSED: base_type = 0x02; break;
+    case ENDO_GROUP_SEGWIT: base_type = 0x03; break;
+    case ENDO_GROUP_UNCOMPRESSED: base_type = 0x01; break;
+    case ENDO_GROUP_ETH: base_type = 0x06; break;
+    case ENDO_GROUP_TAPROOT: base_type = 0x04; break;
+    case ENDO_GROUP_XPOINT: base_type = 0x05; break;
+    default: return false;
+    }
+
+    lambda_sel = 0;
+    negate = false;
+    switch (variant) {
+    case ENDO_VARIANT_BASE_POS:
+        break;
+    case ENDO_VARIANT_BASE_NEG:
+        negate = true;
+        break;
+    case ENDO_VARIANT_ENDO1_POS:
+        lambda_sel = 1;
+        break;
+    case ENDO_VARIANT_ENDO1_NEG:
+        lambda_sel = 1;
+        negate = true;
+        break;
+    case ENDO_VARIANT_ENDO2_POS:
+        lambda_sel = 2;
+        break;
+    case ENDO_VARIANT_ENDO2_NEG:
+        lambda_sel = 2;
+        negate = true;
+        break;
+    default:
+        return false;
+    }
+    return true;
+}
+
+static inline uint8_t endo_base_type_or_self(uint8_t type) {
+    uint8_t base_type = type;
+    uint8_t lambda_sel = 0;
+    bool negate = false;
+    if (decode_endo_tag(type, base_type, lambda_sel, negate)) {
+        return base_type;
+    }
+    return type;
+}
+
+static void fix_endo_key(const uint8_t key_in[32], uint8_t key_out[32], uint8_t endo_type) {
+    uint8_t base_type = 0;
+    uint8_t lambda_sel = 0;
+    bool negate = false;
+    if (!decode_endo_tag(endo_type, base_type, lambda_sel, negate)) {
+        if (endo_type == 0xC2) {
+            scalar_mult_mod_n_256(key_in, SECP256K1_LAMBDA2, key_out);
+            return;
+        }
+        memcpy(key_out, key_in, 32);
+        return;
+    }
+
+    uint8_t tmp[32];
+    if (lambda_sel == 1) scalar_mult_mod_n_256(key_in, SECP256K1_LAMBDA, tmp);
+    else if (lambda_sel == 2) scalar_mult_mod_n_256(key_in, SECP256K1_LAMBDA2, tmp);
+    else memcpy(tmp, key_in, 32);
+
+    if (negate) negate_mod_n_256(tmp, key_out);
+    else memcpy(key_out, tmp, 32);
+}
+
 static inline const char* byte_to_coin(uint8_t coin, bool& ed)
 {
     switch (coin) {
@@ -790,9 +930,12 @@ static void emit_standard_key_result(FILE* file,
     int64_t round_value,
     bool save)
 {
+    const uint8_t base_type = endo_base_type_or_self(coin_type);
     bool is_ed = false;
-    const char* type = byte_to_coin(coin_type, is_ed);
-    const std::string key_segment = build_key_segment(found_priv_key, round_value);
+    const char* type = byte_to_coin(base_type, is_ed);
+    uint8_t key_to_emit[32];
+    fix_endo_key(found_priv_key, key_to_emit, coin_type);
+    const std::string key_segment = build_key_segment(key_to_emit, round_value);
 
     auto emit_default = [&](const char* emit_type, const std::string& payload, bool stdout_add_newline = true) {
         emit_mode_result_line(file, heads.file_head, key_segment, emit_type, payload, heads.stdout_default_head, Silent, stdout_add_newline);
@@ -800,7 +943,7 @@ static void emit_standard_key_result(FILE* file,
 
     const uint8_t* payload = reinterpret_cast<const uint8_t*>(found_hash160);
     if (!save) {
-        if (found_hash_is_32_bytes(coin_type)) {
+        if (found_hash_is_32_bytes(base_type)) {
             emit_default(type, build_hash_payload_words(found_hash160, 8));
         }
         else {
@@ -809,7 +952,7 @@ static void emit_standard_key_result(FILE* file,
         return;
     }
 
-    switch (coin_type) {
+    switch (base_type) {
     case 0x01:
         emit_default(type, hash160ToBase58_d(payload, 0x00));
         return;
@@ -908,7 +1051,7 @@ static void emit_standard_key_result(FILE* file,
         emit_default(type, tz_from_pkhash(PREFIX_TZ1, payload));
         return;
     default:
-        emit_default(type, build_hash_payload_words(found_hash160, found_hash_is_32_bytes(coin_type) ? 8 : 5));
+        emit_default(type, build_hash_payload_words(found_hash160, found_hash_is_32_bytes(base_type) ? 8 : 5));
         return;
     }
 }

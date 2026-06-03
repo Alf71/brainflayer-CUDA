@@ -107,6 +107,7 @@ bool Iota = false;
 bool Icp = false;
 bool Fil = false;
 bool Xtz = false;
+bool Endomorphism = false;
 bool useHashTarget = false;
 uint32_t hashTargetWordsHost[5] = { 0, 0, 0, 0, 0 };
 uint32_t hashTargetMasksHost[5] = { 0, 0, 0, 0, 0 };
@@ -186,6 +187,16 @@ static double speedHashMultiplier()
         multiplier *= static_cast<double>(max<size_t>(1u, Iterations.size()));
     }
     return multiplier;
+}
+
+static uint64_t privEndomorphismKeyMultiplier()
+{
+    const bool hasOther = Solana || Ton || Ton_all || Dot || Aptos || Sui || Xrp || Iota || Icp || Fil || Xtz;
+    if (runKind == RunKind::Priv && Endomorphism && !hasOther &&
+        (Compressed || Uncompressed || Segwit || Taproot || Ethereum || Xpoint)) {
+        return (Taproot || Ethereum || Xpoint) && !(Compressed || Uncompressed || Segwit) ? 3ull : 6ull;
+    }
+    return 1ull;
 }
 
 static void printSpeed(double speed)
@@ -320,7 +331,7 @@ static void printBranchStartup()
         printf("[!] Number of passwords per thread: %d\n", THREAD_STEPS_BRAIN);
     }
     else {
-        printf("[!] Number of keys per thread: %d\n", seqMode ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS);
+        printf("[!] Number of keys per thread: %d\n", (seqMode || isRandom) ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS);
     }
 
     if (seqMode) {
@@ -843,6 +854,8 @@ static void printHelp()
 [!] -start HEX [-end HEX]           Sequential private key range.
 [!] -random                         Random 32-byte private keys.
 [!] -n N                            With -random: +/- span before changing point.
+[!] -em                             Enable secp256k1 endomorphism for -priv seq/random.
+[!]                                 -priv -random enables it by default.
 
 [!] ======================================================================
 [!] SEQUENTIAL FLAGS (default brainwallet mode and -priv)
@@ -855,6 +868,8 @@ static void printHelp()
 [!] -random                         Random branch; with -start/-end picks points inside range.
 [!] -n N                            Random +/- span before changing the random point.
 [!] -log FILE                       Overwrite progress snapshot after each seq round.
+[!] -em                             Enable secp256k1 endomorphism for -priv seq/random.
+[!]                                 -priv -random enables it by default.
 
 [!] [!] SEQ POINT LENGTH / FORMAT [!]
 [!] -priv                           64 hex chars, 256-bit big-endian.
@@ -1017,6 +1032,9 @@ static bool parseArgs(int argc, char** argv, bool& help, string& error)
                 isRandom = true;
                 useStdin = false;
             }
+            else if (arg == "-em") {
+                Endomorphism = true;
+            }
             else if (arg == "-mask") {
                 MaskList.push_back(needValue(arg));
                 useStdin = false;
@@ -1128,6 +1146,9 @@ static bool parseArgs(int argc, char** argv, bool& help, string& error)
     }
     if (isRandom && !use_n_count) {
         cerr << "[!] random source changes point after one +/- launch span; stop with Ctrl+C if needed [!]\n";
+    }
+    if (runKind == RunKind::Priv && isRandom) {
+        Endomorphism = true;
     }
     if (!gUseBloom && !gUseXorC && !gUseXorU && !gUseXorUc && !gUseXorH && !useHashTarget) {
         error = "set at least one GPU filter or direct target";
@@ -1311,12 +1332,12 @@ static bool checkDevice(int device)
             blocksPerSm = maxBlocksPerSm;
         }
         BLOCK_NUMBER = props.multiProcessorCount * blocksPerSm;
-        fprintf(stderr, "[!] Auto-tuned blocks profile '%s': %u per SM (derivations: %zu)\n",
-            tuneProfile, blocksPerSm, Derivations_list.empty() ? 1u : Derivations_list.size());
+        fprintf(stderr, "[!] Auto-tuned blocks profile '%s': %u per SM\n",
+            tuneProfile, blocksPerSm);
     }
     workSize = static_cast<uint64_t>(BLOCK_NUMBER) * BLOCK_THREADS *
         static_cast<uint64_t>(runKind == RunKind::Priv
-            ? (seqMode ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS)
+            ? ((seqMode || isRandom) ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS)
             : THREAD_STEPS_BRAIN);
     fprintf(stderr, "[!] %s (%2d procs | Blocks: %d | Threads: %d)\n",
         props.name, props.multiProcessorCount, BLOCK_NUMBER, BLOCK_THREADS);
@@ -2023,7 +2044,7 @@ static cudaError_t prepareCuda()
     SetCurve<<<1, 1>>>(secp, ed, Compressed, Uncompressed, Segwit, Taproot,
         Ethereum, Xpoint, Solana, Ton, Ton_all,
         Dot, Aptos, Sui, Xrp, Iota,
-        Icp, Fil, Xtz, false);
+        Icp, Fil, Xtz, Endomorphism);
     setFilterType<<<1, 1>>>(gpu_bloom_loaded, gpu_xor_loaded, gpu_xor_un_loaded, gpu_xor_uc_loaded, gpu_xor_hc_loaded);
     cudaStatus = cudaDeviceSynchronize();
     if (cudaStatus != cudaSuccess) return cudaStatus;
@@ -2044,22 +2065,25 @@ static cudaError_t prepareCuda()
 static cudaError_t launchWorkerPrivSeq(dim3 grid, dim3 block, bool* isResult, bool* deviceResult, int walkMode, uint8_t* devStart, uint64_t seqStep, uint64_t* startxBuf, uint64_t* startyBuf)
 {
     const bool hasOther = Solana || Ton || Ton_all || Dot || Aptos || Sui || Xrp || Iota || Icp || Fil || Xtz;
-    if (!hasOther && !Ethereum && !Compressed && !Uncompressed && !Segwit && !Taproot && Xpoint) {
+    if (Endomorphism && !hasOther && (Compressed || Uncompressed || Segwit || Taproot || Ethereum || Xpoint)) {
+        workerPRIV_seq_vanity_cusr<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
+    }
+    else if (!Endomorphism && !hasOther && !Ethereum && !Compressed && !Uncompressed && !Segwit && !Taproot && Xpoint) {
         workerPRIV_seq_vanity_x<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
-    else if (!hasOther && !Ethereum && Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint) {
+    else if (!Endomorphism && !hasOther && !Ethereum && Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint) {
         workerPRIV_seq_vanity_c<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
-    else if (!hasOther && !Ethereum && !Compressed && Uncompressed && !Segwit && !Taproot && !Xpoint) {
+    else if (!Endomorphism && !hasOther && !Ethereum && !Compressed && Uncompressed && !Segwit && !Taproot && !Xpoint) {
         workerPRIV_seq_vanity_u<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
-    else if (!hasOther && !Ethereum && !Compressed && !Uncompressed && Segwit && !Taproot && !Xpoint) {
+    else if (!Endomorphism && !hasOther && !Ethereum && !Compressed && !Uncompressed && Segwit && !Taproot && !Xpoint) {
         workerPRIV_seq_vanity_s<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
-    else if (!hasOther && !Ethereum && !Compressed && !Uncompressed && !Segwit && Taproot && !Xpoint) {
+    else if (!Endomorphism && !hasOther && !Ethereum && !Compressed && !Uncompressed && !Segwit && Taproot && !Xpoint) {
         workerPRIV_seq_vanity_r<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
-    else if (!hasOther && Ethereum && !Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint) {
+    else if (!Endomorphism && !hasOther && Ethereum && !Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint) {
         workerPRIV_seq_vanity_e<<<grid, block>>>(isResult, deviceResult, _dev_precomp, pitch, walkMode, devStart, seqStep, PRIV_SEQ_THREAD_STEPS, startxBuf, startyBuf);
     }
     else if (!hasOther && !Ethereum && !Xpoint && (Compressed || Uncompressed || Segwit || Taproot)) {
@@ -2148,7 +2172,7 @@ public:
         : deviceOrdinal_(deviceOrdinal), deviceCount_(deviceCount), outputFile_(outputFile)
     {
         const uint64_t inputWorkSize = static_cast<uint64_t>(BLOCK_NUMBER) * BLOCK_THREADS *
-            static_cast<uint64_t>(runKind == RunKind::Priv ? THREAD_STEPS : THREAD_STEPS_BRAIN);
+            static_cast<uint64_t>(runKind == RunKind::Priv ? ((seqMode || isRandom) ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS) : THREAD_STEPS_BRAIN);
         const bool generatedPrivSeqPath = runKind == RunKind::Priv && (seqMode || isRandom);
         const uint64_t resultEntries = generatedPrivSeqPath ? 1ull : max<uint64_t>(workSize, inputWorkSize);
         cudaError_t err = allocateResultBuffers(resultEntries, &isResult_, &deviceResult_);
@@ -2304,7 +2328,7 @@ public:
             Ethereum || Xpoint || Dot || Aptos || Sui || Xrp || Iota || Icp || Fil || Xtz;
         const bool hasOther = Solana || Ton || Ton_all || Dot || Aptos || Sui || Xrp || Iota || Icp || Fil || Xtz;
         const bool persistentCompressedOnly = useVanityStartBuffers_ && devVanityStartX_ != nullptr && devVanityStartY_ != nullptr &&
-            !hasOther && !Ethereum && Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint;
+            !hasOther && !Ethereum && Compressed && !Uncompressed && !Segwit && !Taproot && !Xpoint && !Endomorphism;
         const bool canReusePersistent = persistentCompressedOnly && vanityStartBuffersReady_ &&
             vanityPersistentShiftReady_ && vanitySeqStep_ == seqStep && vanityWalkMode_ == walkMode;
 
@@ -2373,7 +2397,7 @@ public:
         }
 
         processed_ += count;
-        counterTotal.fetch_add(count, std::memory_order_relaxed);
+        counterTotal.fetch_add(count * privEndomorphismKeyMultiplier(), std::memory_order_relaxed);
     }
 
     void runBrainSeqChunk(const array<uint8_t, 256>& start, bool back, uint64_t seqStep, uint64_t count)
@@ -2616,6 +2640,54 @@ static bool mulOverflow64(uint64_t a, uint64_t b)
     return b != 0 && a > (numeric_limits<uint64_t>::max() / b);
 }
 
+class SeqRoundBarrier {
+public:
+    explicit SeqRoundBarrier(size_t total) : total_(total) {}
+
+    bool wait()
+    {
+        unique_lock<mutex> lock(mutex_);
+        if (aborted_) {
+            return false;
+        }
+        const size_t generation = generation_;
+        if (++arrived_ == total_) {
+            arrived_ = 0;
+            ++generation_;
+            cv_.notify_all();
+            return !aborted_;
+        }
+        cv_.wait(lock, [&]() { return aborted_ || generation != generation_; });
+        return !aborted_;
+    }
+
+    void abort()
+    {
+        lock_guard<mutex> lock(mutex_);
+        aborted_ = true;
+        ++generation_;
+        arrived_ = 0;
+        cv_.notify_all();
+    }
+
+private:
+    size_t total_ = 0;
+    size_t arrived_ = 0;
+    size_t generation_ = 0;
+    bool aborted_ = false;
+    mutex mutex_;
+    condition_variable cv_;
+};
+
+static SeqRoundBarrier* g_seq_round_barrier = nullptr;
+
+static void waitSeqRoundBarrier()
+{
+    if (g_seq_round_barrier != nullptr && !g_seq_round_barrier->wait()) {
+        throw runtime_error("sequential multi-GPU dispatch aborted");
+    }
+}
+
 struct SeqLogEntry {
     bool valid = false;
     uint64_t step = 0;
@@ -2670,6 +2742,27 @@ static void writeSeqLogSnapshotLocked()
     }
 }
 
+static void writeSeqLogPointLocked(uint64_t seqStep, const string& point, bool back)
+{
+    std::ofstream ofs(log_file, std::ios::trunc);
+    if (!ofs.is_open()) {
+        std::cerr << "Failed to open log file: " << log_file << "\n";
+        return;
+    }
+    ofs << (back ? "-" : "+") << point << " step " << hexStep(seqStep) << "\n";
+}
+
+static void writeSeqLogBothLocked(uint64_t seqStep, const string& plus, const string& minus)
+{
+    std::ofstream ofs(log_file, std::ios::trunc);
+    if (!ofs.is_open()) {
+        std::cerr << "Failed to open log file: " << log_file << "\n";
+        return;
+    }
+    ofs << "+" << plus << " step " << hexStep(seqStep) << "\n";
+    ofs << "-" << minus << " step " << hexStep(seqStep) << "\n";
+}
+
 template <size_t N>
 static void updateSeqLogPoint(size_t ordinal, uint64_t seqStep, const array<uint8_t, N>& point, bool back)
 {
@@ -2692,6 +2785,16 @@ static void updateSeqLogPoint(size_t ordinal, uint64_t seqStep, const array<uint
 }
 
 template <size_t N>
+static void updateSeqLogCheckpointPoint(uint64_t seqStep, const array<uint8_t, N>& point, bool back)
+{
+    if (!isLog) {
+        return;
+    }
+    lock_guard<mutex> lock(g_seq_log_mutex);
+    writeSeqLogPointLocked(seqStep, bytesToHexUpper(point), back);
+}
+
+template <size_t N>
 static void updateSeqLogBoth(size_t ordinal, uint64_t seqStep, const array<uint8_t, N>& plus, const array<uint8_t, N>& minus)
 {
     if (!isLog) {
@@ -2710,6 +2813,16 @@ static void updateSeqLogBoth(size_t ordinal, uint64_t seqStep, const array<uint8
     entry.plus = bytesToHexUpper(plus);
     entry.minus = bytesToHexUpper(minus);
     writeSeqLogSnapshotLocked();
+}
+
+template <size_t N>
+static void updateSeqLogCheckpointBoth(uint64_t seqStep, const array<uint8_t, N>& plus, const array<uint8_t, N>& minus)
+{
+    if (!isLog) {
+        return;
+    }
+    lock_guard<mutex> lock(g_seq_log_mutex);
+    writeSeqLogBothLocked(seqStep, bytesToHexUpper(plus), bytesToHexUpper(minus));
 }
 
 template <size_t N>
@@ -2746,26 +2859,35 @@ static void processRangeBoth(GpuRuntimeContext& processor)
     array<uint8_t, N> minus = plus;
     const uint64_t devCount = static_cast<uint64_t>(max(1, processor.deviceCount()));
     const uint64_t devOrdinal = static_cast<uint64_t>(max(0, processor.deviceOrdinal()));
-    if (mulOverflow64(step, devCount) || mulOverflow64(step, devOrdinal)) {
-        throw runtime_error("range step overflow");
-    }
-    advanceBig(plus, step * devOrdinal, false);
-    advanceBig(minus, step * devOrdinal, true);
-    const uint64_t seqStep = step * devCount;
 
     const uint64_t fullChunk = static_cast<uint64_t>(BLOCK_NUMBER) * static_cast<uint64_t>(BLOCK_THREADS) *
         static_cast<uint64_t>(runKind == RunKind::Priv ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS_BRAIN);
-    if (fullChunk == 0 || mulOverflow64(seqStep, fullChunk)) {
+    if (fullChunk == 0 || mulOverflow64(step, fullChunk)) {
         throw runtime_error("range launch overflow");
     }
 
-    const uint64_t delta = seqStep * fullChunk;
+    const uint64_t chunkDelta = step * fullChunk;
+    if (mulOverflow64(chunkDelta, devOrdinal) || mulOverflow64(chunkDelta, devCount)) {
+        throw runtime_error("range launch overflow");
+    }
+    const uint64_t deviceDelta = chunkDelta * devOrdinal;
+    const uint64_t roundDelta = chunkDelta * devCount;
     while (isRun.load(std::memory_order_acquire)) {
-        updateSeqLogBoth(processor.deviceOrdinal(), seqStep, plus, minus);
-        runRangeSeqChunk(processor, plus, false, seqStep, fullChunk);
-        runRangeSeqChunk(processor, minus, true, seqStep, fullChunk);
-        advanceBig(plus, delta, false);
-        advanceBig(minus, delta, true);
+        if (devOrdinal == 0) {
+            updateSeqLogCheckpointBoth(step, plus, minus);
+        }
+        waitSeqRoundBarrier();
+
+        array<uint8_t, N> localPlus = plus;
+        array<uint8_t, N> localMinus = minus;
+        advanceBig(localPlus, deviceDelta, false);
+        advanceBig(localMinus, deviceDelta, true);
+        runRangeSeqChunk(processor, localPlus, false, step, fullChunk);
+        runRangeSeqChunk(processor, localMinus, true, step, fullChunk);
+
+        waitSeqRoundBarrier();
+        advanceBig(plus, roundDelta, false);
+        advanceBig(minus, roundDelta, true);
     }
 }
 
@@ -2785,31 +2907,36 @@ static void processRangeTyped(GpuRuntimeContext& processor)
         return;
     }
 
+    array<uint8_t, N> cur = start;
     const uint64_t devCount = static_cast<uint64_t>(max(1, processor.deviceCount()));
     const uint64_t devOrdinal = static_cast<uint64_t>(max(0, processor.deviceOrdinal()));
-    if (mulOverflow64(step, devCount) || mulOverflow64(step, devOrdinal)) {
-        throw runtime_error("range step overflow");
-    }
-
-    array<uint8_t, N> cur = start;
-    advanceBig(cur, step * devOrdinal, backward);
-    if (!inRange(cur, end, backward)) {
-        return;
-    }
-
-    const uint64_t seqStep = step * devCount;
     const uint64_t fullChunk = static_cast<uint64_t>(BLOCK_NUMBER) * static_cast<uint64_t>(BLOCK_THREADS) *
         static_cast<uint64_t>(runKind == RunKind::Priv ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS_BRAIN);
-    if (fullChunk == 0 || mulOverflow64(seqStep, fullChunk)) {
+    if (fullChunk == 0 || mulOverflow64(step, fullChunk)) {
         throw runtime_error("range launch overflow");
     }
 
-    const uint64_t delta = seqStep * fullChunk;
+    const uint64_t chunkDelta = step * fullChunk;
+    if (mulOverflow64(chunkDelta, devOrdinal) || mulOverflow64(chunkDelta, devCount)) {
+        throw runtime_error("range launch overflow");
+    }
+    const uint64_t deviceDelta = chunkDelta * devOrdinal;
+    const uint64_t roundDelta = chunkDelta * devCount;
     while (isRun.load(std::memory_order_acquire) && inRange(cur, end, backward)) {
-        updateSeqLogPoint(processor.deviceOrdinal(), seqStep, cur, backward);
-        runRangeSeqChunk(processor, cur, backward, seqStep, fullChunk);
+        if (devOrdinal == 0) {
+            updateSeqLogCheckpointPoint(step, cur, backward);
+        }
+        waitSeqRoundBarrier();
+
+        array<uint8_t, N> local = cur;
+        advanceBig(local, deviceDelta, backward);
+        if (inRange(local, end, backward)) {
+            runRangeSeqChunk(processor, local, backward, step, fullChunk);
+        }
+
+        waitSeqRoundBarrier();
         array<uint8_t, N> next = cur;
-        advanceBig(next, delta, backward);
+        advanceBig(next, roundDelta, backward);
         if (backward) {
             if (greaterOrEqual(next, cur) && next != cur) {
                 break;
@@ -3496,6 +3623,9 @@ static DeviceRunResult runDevice(size_t ordinal, size_t deviceCount, SharedLineS
     catch (const exception& ex) {
         result.cudaStatus = cudaErrorUnknown;
         result.error = ex.what();
+        if (g_seq_round_barrier != nullptr) {
+            g_seq_round_barrier->abort();
+        }
         if (initBarrier != nullptr) {
             initBarrier->fail();
         }
@@ -3568,6 +3698,11 @@ int main(int argc, char** argv)
         workers.reserve(DeviceList.size());
         unique_ptr<SharedLineSource> sharedLines;
         DeviceInitBarrier initBarrier(DeviceList.size());
+        unique_ptr<SeqRoundBarrier> seqRoundBarrier;
+        if (seqMode && DeviceList.size() > 1) {
+            seqRoundBarrier = make_unique<SeqRoundBarrier>(DeviceList.size());
+            g_seq_round_barrier = seqRoundBarrier.get();
+        }
         const bool streamMode = !isRandom && !seqMode && MaskList.empty() && MaskFileList.empty();
         if (streamMode && DeviceList.size() > 1) {
             if (!inputFiles.empty()) {
@@ -3587,6 +3722,7 @@ int main(int argc, char** argv)
                 worker.join();
             }
         }
+        g_seq_round_barrier = nullptr;
         isRun.store(false, std::memory_order_release);
         if (speedThread.joinable()) {
             speedThread.join();
