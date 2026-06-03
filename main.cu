@@ -70,6 +70,7 @@ vector<string> MaskList;
 vector<string> MaskFileList;
 array<string, 4> CustomSets{ string(""), string(""), string(""), string("") };
 string fileResult = "result.txt";
+string log_file = "log.txt";
 string deviceSpec;
 string start_point;
 string end_point;
@@ -88,6 +89,7 @@ bool backward = false;
 bool both = false;
 bool save = false;
 bool silent = false;
+bool isLog = false;
 bool Compressed = true;
 bool Uncompressed = true;
 bool Segwit = true;
@@ -267,13 +269,19 @@ static void printSequentialRangeBounds()
         : normalizePointForPrint(end_point, width, '0');
 
     if (isRandom) {
-        printf("[!] starting %s sequential random mode +- n=%llu step=0x%llx [!]\n",
+        uint64_t randomSpan = static_cast<uint64_t>(BLOCK_NUMBER) *
+            static_cast<uint64_t>(BLOCK_THREADS) *
+            static_cast<uint64_t>(runKind == RunKind::Priv ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS_BRAIN);
+        if (use_n_count && n_number > randomSpan) {
+            randomSpan = n_number;
+        }
+        printf("[!] starting %s sequential random mode +/- n=%llu step=0x%llx [!]\n",
             modeLabel,
-            static_cast<unsigned long long>(n_number),
+            static_cast<unsigned long long>(randomSpan),
             static_cast<unsigned long long>(step));
     }
     else if (both) {
-        printf("[!] starting %s sequential both mode +- step=0x%llx [!]\n",
+        printf("[!] starting %s sequential both mode +/- step=0x%llx [!]\n",
             modeLabel,
             static_cast<unsigned long long>(step));
     }
@@ -716,6 +724,7 @@ static void printHelp()
 [!]                                 Without -save: output matched hash payloads.
 [!]                                 With -save: output currency addresses for target type.
 [!] -silent                         Do not print founds to console.
+[!] -log FILE                       Sequential progress snapshot, overwritten each round.
 
 [!] ======================================================================
 [!] INPUT FORMAT / HASH TARGETS / FILTERS / CURVES / GPU
@@ -786,7 +795,7 @@ static void printHelp()
 [!] -hex                            Input lines are hex-encoded bytes.
 [!] -start HEX [-end HEX]           Sequential 2048-bit brain point range.
 [!] -random                         Random generated brain points.
-[!] -n N                            Candidate limit.
+[!] -n N                            With -random: +/- span before changing point.
 [!] -mask MASK                      GPU mask brute force.
 [!] -mask-file FILE                 One mask per line.
 [!] -cs1/-cs2/-cs3/-cs4 CHARS       Custom mask charsets for ?1..?4.
@@ -797,7 +806,6 @@ static void printHelp()
 [!] -iter list, filters and -c targets.
 [!] Use mask mode instead of stdin/file/seq/random sources.
 [!] Multiple -mask values and -mask-file lines are processed in order.
-[!] -n N limits the total number of generated candidates.
 [!] Multi-GPU splits mask ordinal ranges across selected devices.
 [!]
 [!] Mask tokens:
@@ -819,7 +827,7 @@ static void printHelp()
 [!] Brainflayer-CUDA.exe -mask pass?d?d?d -sha256 -c c -bf targets.blf
 [!] Brainflayer-CUDA.exe -mask admin?l?l?d -iter 1,2,4 -c cus -save
 [!] Brainflayer-CUDA.exe -cs1 abcDEF123 -mask key?1?1?1?1 -c u -hash HASH
-[!] Brainflayer-CUDA.exe -mask-file masks.txt -n 1000000 -c c -bf targets.blf
+[!] Brainflayer-CUDA.exe -mask-file masks.txt -iter 1,2,4 -c c -bf targets.blf
 
 [!] ======================================================================
 [!] PRIVATE KEY MODE
@@ -834,7 +842,7 @@ static void printHelp()
 [!] -hex                            Input lines are hex-encoded bytes.
 [!] -start HEX [-end HEX]           Sequential private key range.
 [!] -random                         Random 32-byte private keys.
-[!] -n N                            Candidate limit.
+[!] -n N                            With -random: +/- span before changing point.
 
 [!] ======================================================================
 [!] SEQUENTIAL FLAGS (default brainwallet mode and -priv)
@@ -843,9 +851,10 @@ static void printHelp()
 [!] -end VALUE                      End point.
 [!] -step HEX                       Step, default 1.
 [!] -back                           Backward seq branch.
-[!] -both                           +- branch around start; requires -n.
-[!] -random                         Random branch inside range; use with -n.
-[!] -n N                            Seq-random span override / candidate limit.
+[!] -both                           +/- branch around start.
+[!] -random                         Random branch; with -start/-end picks points inside range.
+[!] -n N                            Random +/- span before changing the random point.
+[!] -log FILE                       Overwrite progress snapshot after each seq round.
 
 [!] [!] SEQ POINT LENGTH / FORMAT [!]
 [!] -priv                           64 hex chars, 256-bit big-endian.
@@ -998,8 +1007,8 @@ static bool parseArgs(int argc, char** argv, bool& help, string& error)
                 both = true;
             }
             else if (arg == "-n") {
-                if (!parseUint64(needValue(arg), n_number)) {
-                    error = "invalid candidate limit";
+                if (!parseUint64(needValue(arg), n_number) || n_number == 0) {
+                    error = "invalid random span";
                     return false;
                 }
                 use_n_count = true;
@@ -1074,6 +1083,10 @@ static bool parseArgs(int argc, char** argv, bool& help, string& error)
             else if (arg == "-o") {
                 fileResult = needValue(arg);
             }
+            else if (arg == "-log") {
+                log_file = needValue(arg);
+                isLog = true;
+            }
             else if (arg == "-save") {
                 save = true;
             }
@@ -1109,12 +1122,12 @@ static bool parseArgs(int argc, char** argv, bool& help, string& error)
             return false;
         }
     }
-    if (both && n_number == 0) {
-        error = "range both direction requires -n";
+    if (use_n_count && !isRandom) {
+        error = "n is only supported with random mode";
         return false;
     }
-    if (isRandom && n_number == 0) {
-        cerr << "[!] random source has no limit; stop with Ctrl+C if needed [!]\n";
+    if (isRandom && !use_n_count) {
+        cerr << "[!] random source changes point after one +/- launch span; stop with Ctrl+C if needed [!]\n";
     }
     if (!gUseBloom && !gUseXorC && !gUseXorU && !gUseXorUc && !gUseXorH && !useHashTarget) {
         error = "set at least one GPU filter or direct target";
@@ -2136,12 +2149,13 @@ public:
     {
         const uint64_t inputWorkSize = static_cast<uint64_t>(BLOCK_NUMBER) * BLOCK_THREADS *
             static_cast<uint64_t>(runKind == RunKind::Priv ? THREAD_STEPS : THREAD_STEPS_BRAIN);
-        const uint64_t resultEntries = (runKind == RunKind::Priv && seqMode) ? 1ull : max<uint64_t>(workSize, inputWorkSize);
+        const bool generatedPrivSeqPath = runKind == RunKind::Priv && (seqMode || isRandom);
+        const uint64_t resultEntries = generatedPrivSeqPath ? 1ull : max<uint64_t>(workSize, inputWorkSize);
         cudaError_t err = allocateResultBuffers(resultEntries, &isResult_, &deviceResult_);
         if (err != cudaSuccess) {
             throw runtime_error(cudaGetErrorString(err));
         }
-        if (runKind == RunKind::Priv && seqMode) {
+        if (generatedPrivSeqPath) {
             err = cudaMalloc((void**)&devPrivSeqStart_, 32);
             if (err != cudaSuccess || devPrivSeqStart_ == nullptr) {
                 throw runtime_error(cudaGetErrorString(err));
@@ -2602,6 +2616,109 @@ static bool mulOverflow64(uint64_t a, uint64_t b)
     return b != 0 && a > (numeric_limits<uint64_t>::max() / b);
 }
 
+struct SeqLogEntry {
+    bool valid = false;
+    int gpu = -1;
+    string mode;
+    uint64_t step = 0;
+    bool both = false;
+    string point;
+    string plus;
+    string minus;
+};
+
+static std::mutex g_seq_log_mutex;
+static vector<SeqLogEntry> g_seq_log_entries;
+
+template <size_t N>
+static string bytesToHexUpper(const array<uint8_t, N>& value)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    string out;
+    out.resize(N * 2);
+    for (size_t i = 0; i < N; ++i) {
+        out[i * 2] = hex[value[i] >> 4];
+        out[i * 2 + 1] = hex[value[i] & 0x0f];
+    }
+    return out;
+}
+
+static string hexStep(uint64_t value)
+{
+    std::ostringstream ss;
+    ss << "0x" << std::hex << std::uppercase << value;
+    return ss.str();
+}
+
+static void writeSeqLogSnapshotLocked()
+{
+    std::ofstream ofs(log_file, std::ios::trunc);
+    if (!ofs.is_open()) {
+        std::cerr << "Failed to open log file: " << log_file << "\n";
+        return;
+    }
+    for (const SeqLogEntry& entry : g_seq_log_entries) {
+        if (!entry.valid) {
+            continue;
+        }
+        ofs << "GPU=" << entry.gpu << "\n";
+        ofs << "MODE=" << entry.mode << "\n";
+        ofs << "STEP=" << hexStep(entry.step) << "\n";
+        if (entry.both) {
+            ofs << "+=" << entry.plus << "\n";
+            ofs << "-=" << entry.minus << "\n";
+        }
+        else {
+            ofs << "POINT=" << entry.point << "\n";
+        }
+        ofs << "\n";
+    }
+}
+
+template <size_t N>
+static void updateSeqLogPoint(size_t ordinal, int gpu, uint64_t seqStep, const array<uint8_t, N>& point)
+{
+    if (!isLog) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_seq_log_mutex);
+    if (g_seq_log_entries.size() <= ordinal) {
+        g_seq_log_entries.resize(ordinal + 1);
+    }
+    SeqLogEntry& entry = g_seq_log_entries[ordinal];
+    entry.valid = true;
+    entry.gpu = gpu;
+    entry.mode = runKind == RunKind::Brain ? "BRAINWALLET" : "PVK";
+    entry.step = seqStep;
+    entry.both = false;
+    entry.point = bytesToHexUpper(point);
+    entry.plus.clear();
+    entry.minus.clear();
+    writeSeqLogSnapshotLocked();
+}
+
+template <size_t N>
+static void updateSeqLogBoth(size_t ordinal, int gpu, uint64_t seqStep, const array<uint8_t, N>& plus, const array<uint8_t, N>& minus)
+{
+    if (!isLog) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_seq_log_mutex);
+    if (g_seq_log_entries.size() <= ordinal) {
+        g_seq_log_entries.resize(ordinal + 1);
+    }
+    SeqLogEntry& entry = g_seq_log_entries[ordinal];
+    entry.valid = true;
+    entry.gpu = gpu;
+    entry.mode = runKind == RunKind::Brain ? "BRAINWALLET" : "PVK";
+    entry.step = seqStep;
+    entry.both = true;
+    entry.point.clear();
+    entry.plus = bytesToHexUpper(plus);
+    entry.minus = bytesToHexUpper(minus);
+    writeSeqLogSnapshotLocked();
+}
+
 template <size_t N>
 static void advanceBig(array<uint8_t, N>& value, uint64_t amount, bool back)
 {
@@ -2649,24 +2766,11 @@ static void processRangeBoth(GpuRuntimeContext& processor)
         throw runtime_error("range launch overflow");
     }
 
-    uint64_t localLimit = numeric_limits<uint64_t>::max();
-    if (n_number != 0) {
-        if (devOrdinal >= n_number) {
-            return;
-        }
-        localLimit = ((n_number - 1 - devOrdinal) / devCount) + 1;
-    }
-
-    uint64_t emitted = 0;
     const uint64_t delta = seqStep * fullChunk;
-    while (emitted < localLimit) {
+    while (isRun.load(std::memory_order_acquire)) {
+        updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, seqStep, plus, minus);
         runRangeSeqChunk(processor, plus, false, seqStep, fullChunk);
-        emitted += fullChunk;
-        if (emitted >= localLimit) {
-            break;
-        }
         runRangeSeqChunk(processor, minus, true, seqStep, fullChunk);
-        emitted += fullChunk;
         advanceBig(plus, delta, false);
         advanceBig(minus, delta, true);
     }
@@ -2700,14 +2804,6 @@ static void processRangeTyped(GpuRuntimeContext& processor)
         return;
     }
 
-    uint64_t localLimit = numeric_limits<uint64_t>::max();
-    if (n_number != 0) {
-        if (devOrdinal >= n_number) {
-            return;
-        }
-        localLimit = ((n_number - 1 - devOrdinal) / devCount) + 1;
-    }
-
     const uint64_t seqStep = step * devCount;
     const uint64_t fullChunk = static_cast<uint64_t>(BLOCK_NUMBER) * static_cast<uint64_t>(BLOCK_THREADS) *
         static_cast<uint64_t>(runKind == RunKind::Priv ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS_BRAIN);
@@ -2715,14 +2811,10 @@ static void processRangeTyped(GpuRuntimeContext& processor)
         throw runtime_error("range launch overflow");
     }
 
-    uint64_t emitted = 0;
     const uint64_t delta = seqStep * fullChunk;
-    while (emitted < localLimit && inRange(cur, end, backward)) {
+    while (isRun.load(std::memory_order_acquire) && inRange(cur, end, backward)) {
+        updateSeqLogPoint(processor.deviceOrdinal(), DEVICE_NR, seqStep, cur);
         runRangeSeqChunk(processor, cur, backward, seqStep, fullChunk);
-        emitted += fullChunk;
-        if (emitted >= localLimit) {
-            break;
-        }
         array<uint8_t, N> next = cur;
         advanceBig(next, delta, backward);
         if (backward) {
@@ -2841,30 +2933,20 @@ static bool prepareMaskSpec(const string& mask, BrainMaskSpec& spec, string& err
     return true;
 }
 
-static void processMaskText(const string& mask, GpuRuntimeContext& processor, uint64_t& produced)
+static void processMaskText(const string& mask, GpuRuntimeContext& processor)
 {
-    if (n_number != 0 && produced >= n_number) {
-        return;
-    }
     BrainMaskSpec spec{};
     string error;
     if (!prepareMaskSpec(mask, spec, error)) {
         throw runtime_error("invalid mask '" + mask + "': " + error);
     }
-    uint64_t allowed = spec.total_candidates;
-    if (n_number != 0) {
-        allowed = min<uint64_t>(allowed, n_number - produced);
-    }
-    processor.runMask(spec, allowed);
-    produced += allowed;
+    processor.runMask(spec, spec.total_candidates);
 }
 
 static void processMasks(GpuRuntimeContext& processor)
 {
-    uint64_t produced = 0;
     for (const string& mask : MaskList) {
-        processMaskText(mask, processor, produced);
-        if (n_number != 0 && produced >= n_number) return;
+        processMaskText(mask, processor);
     }
     for (const string& file : MaskFileList) {
         ifstream in(file);
@@ -2876,8 +2958,7 @@ static void processMasks(GpuRuntimeContext& processor)
             stripCr(line);
             line = trimCopy(line);
             if (line.empty()) continue;
-            processMaskText(line, processor, produced);
-            if (n_number != 0 && produced >= n_number) return;
+            processMaskText(line, processor);
         }
     }
 }
@@ -2908,17 +2989,32 @@ static void processPrivRandom(GpuRuntimeContext& processor)
     if (outputSizeB_T == 0) {
         throw runtime_error("invalid random launch size");
     }
+    if (mulOverflow64(step, outputSizeB_T)) {
+        throw runtime_error("random step overflow");
+    }
 
-    uint64_t produced = 0;
-    while (n_number == 0 || produced < n_number) {
+    const uint64_t randomSpan = use_n_count ? n_number : 1ull;
+    const uint64_t delta = step * outputSizeB_T;
+    while (isRun.load(std::memory_order_acquire)) {
         array<uint8_t, 32> point = makeRandomPoint<32>();
-        processor.runPrivSeqChunk(point, false, step, outputSizeB_T);
-        produced += outputSizeB_T;
-        if (n_number != 0 && produced >= n_number) {
-            break;
+        array<uint8_t, 32> plus = point;
+        array<uint8_t, 32> minus = point;
+        for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
+            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            processor.runPrivSeqChunk(plus, false, step, outputSizeB_T);
+            advanceBig(plus, delta, false);
+            if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {
+                break;
+            }
         }
-        processor.runPrivSeqChunk(point, true, step, outputSizeB_T);
-        produced += outputSizeB_T;
+        for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
+            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            processor.runPrivSeqChunk(minus, true, step, outputSizeB_T);
+            advanceBig(minus, delta, true);
+            if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {
+                break;
+            }
+        }
     }
 }
 
@@ -2930,17 +3026,32 @@ static void processBrainRandom(GpuRuntimeContext& processor)
     if (outputSizeB_T == 0) {
         throw runtime_error("invalid random launch size");
     }
+    if (mulOverflow64(step, outputSizeB_T)) {
+        throw runtime_error("random step overflow");
+    }
 
-    uint64_t produced = 0;
-    while (n_number == 0 || produced < n_number) {
+    const uint64_t randomSpan = use_n_count ? n_number : 1ull;
+    const uint64_t delta = step * outputSizeB_T;
+    while (isRun.load(std::memory_order_acquire)) {
         array<uint8_t, 256> point = makeRandomPoint<256>();
-        processor.runBrainSeqChunk(point, false, step, outputSizeB_T);
-        produced += outputSizeB_T;
-        if (n_number != 0 && produced >= n_number) {
-            break;
+        array<uint8_t, 256> plus = point;
+        array<uint8_t, 256> minus = point;
+        for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
+            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            processor.runBrainSeqChunk(plus, false, step, outputSizeB_T);
+            advanceBig(plus, delta, false);
+            if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {
+                break;
+            }
         }
-        processor.runBrainSeqChunk(point, true, step, outputSizeB_T);
-        produced += outputSizeB_T;
+        for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
+            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            processor.runBrainSeqChunk(minus, true, step, outputSizeB_T);
+            advanceBig(minus, delta, true);
+            if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {
+                break;
+            }
+        }
     }
 }
 
@@ -2969,9 +3080,6 @@ public:
     bool next(string& line)
     {
         lock_guard<mutex> lock(mutex_);
-        if (n_number != 0 && emitted_ >= n_number) {
-            return false;
-        }
         if (stream_ != nullptr) {
             if (!read_trimmed_line(*stream_, line, 512)) {
                 return false;
@@ -3019,9 +3127,6 @@ private:
 
 static inline bool read_process_line(std::istream& stream, std::string& buffer, uint64_t& seen)
 {
-    if (n_number != 0 && seen >= n_number) {
-        return false;
-    }
     if (!read_trimmed_line(stream, buffer, 512)) {
         return false;
     }

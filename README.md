@@ -287,9 +287,10 @@ Sequential mode works in both default brainwallet mode and `-priv` mode.
 -end VALUE       End point.
 -step VALUE      Step. Default: 1.
 -back            Scan backward.
--both            Scan both directions around start. Requires -n.
--random          Random branch inside the selected range. Use with -n.
--n N             Check limit.
+-both            Scan both directions around start.
+-random          Random branch inside the selected range.
+-n N             With -random: +/- span before changing the random point.
+-log FILE        Sequential progress snapshot, overwritten each round.
 ```
 
 For `-priv`, values are 256-bit private-key numbers and are printed as 64 hex characters.
@@ -313,6 +314,8 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf t
 ```
 
 For `-priv`, each selected GPU receives a different private-key subsequence. With `-step 1 -device 0,1`, GPU 0 starts from `start`, GPU 1 starts from `start + 1`, and the effective per-GPU step becomes `2`.
+
+`-log` is useful for long sequential runs. The file is overwritten once per round with the current point and step. In `-both`, the snapshot contains two direction lines: `+=...` and `-=...`.
 
 ## Mask Brute Mode
 
@@ -354,12 +357,6 @@ Or from a file:
 
 ```powershell
 Brainflayer-CUDA.exe -mask-file masks.txt -sha256 -iter 1,2,4 -c cus -bf targets.blf -save
-```
-
-`-n` limits the total number of generated phrases:
-
-```powershell
-Brainflayer-CUDA.exe -mask ?l?l?l?l?d?d -n 1000000 -c c -bf targets.blf
 ```
 
 With several GPUs, mask phrase indexes are split across selected devices.
@@ -820,9 +817,10 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c x -bf xpoint.blf
 -end VALUE       конец диапазона
 -step VALUE      шаг, по умолчанию 1
 -back            идти назад
--both            идти в обе стороны от start, требует -n
--random          случайные значения внутри диапазона, использовать с -n
--n N             ограничение количества проверок
+-both            идти в обе стороны от start
+-random          случайные значения внутри диапазона
+-n N             с -random: участок +/- перед сменой случайной точки
+-log FILE        снимок текущей точки последовательного перебора
 ```
 
 Для `-priv` значения являются 256-битными приватами / приватными ключами и печатаются как 64 hex-символа.
@@ -846,6 +844,8 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf t
 ```
 
 В режиме `-priv` каждая выбранная видеокарта получает свою подпоследовательность приватов / приватных ключей. Например, с `-step 1 -device 0,1` GPU 0 начинает с `start`, GPU 1 начинает с `start + 1`, а эффективный шаг на каждой видеокарте становится `2`.
+
+`-log` удобен для долгого последовательного перебора. Файл перезаписывается один раз за раунд и содержит текущую точку и шаг. Для `-both` в файле будут две строки направлений: `+=...` и `-=...`.
 
 ## Перебор по маске
 
@@ -887,12 +887,6 @@ Brainflayer-CUDA.exe -mask admin?d?d -mask pass?d?d?d -sha256 -c c -bf targets.b
 
 ```powershell
 Brainflayer-CUDA.exe -mask-file masks.txt -sha256 -iter 1,2,4 -c cus -bf targets.blf -save
-```
-
-`-n` ограничивает общее количество сгенерированных фраз:
-
-```powershell
-Brainflayer-CUDA.exe -mask ?l?l?l?l?d?d -n 1000000 -c c -bf targets.blf
 ```
 
 На нескольких видеокартах номера фраз по маске делятся между выбранными устройствами.
