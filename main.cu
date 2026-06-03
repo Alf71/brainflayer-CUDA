@@ -2618,10 +2618,9 @@ static bool mulOverflow64(uint64_t a, uint64_t b)
 
 struct SeqLogEntry {
     bool valid = false;
-    int gpu = -1;
-    string mode;
     uint64_t step = 0;
     bool both = false;
+    bool back = false;
     string point;
     string plus;
     string minus;
@@ -2661,22 +2660,18 @@ static void writeSeqLogSnapshotLocked()
         if (!entry.valid) {
             continue;
         }
-        ofs << "GPU=" << entry.gpu << "\n";
-        ofs << "MODE=" << entry.mode << "\n";
-        ofs << "STEP=" << hexStep(entry.step) << "\n";
         if (entry.both) {
-            ofs << "+=" << entry.plus << "\n";
-            ofs << "-=" << entry.minus << "\n";
+            ofs << "+" << entry.plus << " step " << hexStep(entry.step) << "\n";
+            ofs << "-" << entry.minus << " step " << hexStep(entry.step) << "\n";
         }
         else {
-            ofs << "POINT=" << entry.point << "\n";
+            ofs << (entry.back ? "-" : "+") << entry.point << " step " << hexStep(entry.step) << "\n";
         }
-        ofs << "\n";
     }
 }
 
 template <size_t N>
-static void updateSeqLogPoint(size_t ordinal, int gpu, uint64_t seqStep, const array<uint8_t, N>& point)
+static void updateSeqLogPoint(size_t ordinal, uint64_t seqStep, const array<uint8_t, N>& point, bool back)
 {
     if (!isLog) {
         return;
@@ -2687,10 +2682,9 @@ static void updateSeqLogPoint(size_t ordinal, int gpu, uint64_t seqStep, const a
     }
     SeqLogEntry& entry = g_seq_log_entries[ordinal];
     entry.valid = true;
-    entry.gpu = gpu;
-    entry.mode = runKind == RunKind::Brain ? "BRAINWALLET" : "PVK";
     entry.step = seqStep;
     entry.both = false;
+    entry.back = back;
     entry.point = bytesToHexUpper(point);
     entry.plus.clear();
     entry.minus.clear();
@@ -2698,7 +2692,7 @@ static void updateSeqLogPoint(size_t ordinal, int gpu, uint64_t seqStep, const a
 }
 
 template <size_t N>
-static void updateSeqLogBoth(size_t ordinal, int gpu, uint64_t seqStep, const array<uint8_t, N>& plus, const array<uint8_t, N>& minus)
+static void updateSeqLogBoth(size_t ordinal, uint64_t seqStep, const array<uint8_t, N>& plus, const array<uint8_t, N>& minus)
 {
     if (!isLog) {
         return;
@@ -2709,10 +2703,9 @@ static void updateSeqLogBoth(size_t ordinal, int gpu, uint64_t seqStep, const ar
     }
     SeqLogEntry& entry = g_seq_log_entries[ordinal];
     entry.valid = true;
-    entry.gpu = gpu;
-    entry.mode = runKind == RunKind::Brain ? "BRAINWALLET" : "PVK";
     entry.step = seqStep;
     entry.both = true;
+    entry.back = false;
     entry.point.clear();
     entry.plus = bytesToHexUpper(plus);
     entry.minus = bytesToHexUpper(minus);
@@ -2768,7 +2761,7 @@ static void processRangeBoth(GpuRuntimeContext& processor)
 
     const uint64_t delta = seqStep * fullChunk;
     while (isRun.load(std::memory_order_acquire)) {
-        updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, seqStep, plus, minus);
+        updateSeqLogBoth(processor.deviceOrdinal(), seqStep, plus, minus);
         runRangeSeqChunk(processor, plus, false, seqStep, fullChunk);
         runRangeSeqChunk(processor, minus, true, seqStep, fullChunk);
         advanceBig(plus, delta, false);
@@ -2813,7 +2806,7 @@ static void processRangeTyped(GpuRuntimeContext& processor)
 
     const uint64_t delta = seqStep * fullChunk;
     while (isRun.load(std::memory_order_acquire) && inRange(cur, end, backward)) {
-        updateSeqLogPoint(processor.deviceOrdinal(), DEVICE_NR, seqStep, cur);
+        updateSeqLogPoint(processor.deviceOrdinal(), seqStep, cur, backward);
         runRangeSeqChunk(processor, cur, backward, seqStep, fullChunk);
         array<uint8_t, N> next = cur;
         advanceBig(next, delta, backward);
@@ -3000,7 +2993,7 @@ static void processPrivRandom(GpuRuntimeContext& processor)
         array<uint8_t, 32> plus = point;
         array<uint8_t, 32> minus = point;
         for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
-            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            updateSeqLogBoth(processor.deviceOrdinal(), step, plus, minus);
             processor.runPrivSeqChunk(plus, false, step, outputSizeB_T);
             advanceBig(plus, delta, false);
             if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {
@@ -3008,7 +3001,7 @@ static void processPrivRandom(GpuRuntimeContext& processor)
             }
         }
         for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
-            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            updateSeqLogBoth(processor.deviceOrdinal(), step, plus, minus);
             processor.runPrivSeqChunk(minus, true, step, outputSizeB_T);
             advanceBig(minus, delta, true);
             if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {
@@ -3037,7 +3030,7 @@ static void processBrainRandom(GpuRuntimeContext& processor)
         array<uint8_t, 256> plus = point;
         array<uint8_t, 256> minus = point;
         for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
-            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            updateSeqLogBoth(processor.deviceOrdinal(), step, plus, minus);
             processor.runBrainSeqChunk(plus, false, step, outputSizeB_T);
             advanceBig(plus, delta, false);
             if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {
@@ -3045,7 +3038,7 @@ static void processBrainRandom(GpuRuntimeContext& processor)
             }
         }
         for (uint64_t local_n = 0; isRun.load(std::memory_order_acquire) && local_n <= randomSpan; local_n += outputSizeB_T) {
-            updateSeqLogBoth(processor.deviceOrdinal(), DEVICE_NR, step, plus, minus);
+            updateSeqLogBoth(processor.deviceOrdinal(), step, plus, minus);
             processor.runBrainSeqChunk(minus, true, step, outputSizeB_T);
             advanceBig(minus, delta, true);
             if (numeric_limits<uint64_t>::max() - local_n < outputSizeB_T) {

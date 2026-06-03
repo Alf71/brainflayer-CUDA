@@ -315,7 +315,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf t
 
 For `-priv`, each selected GPU receives a different private-key subsequence. With `-step 1 -device 0,1`, GPU 0 starts from `start`, GPU 1 starts from `start + 1`, and the effective per-GPU step becomes `2`.
 
-`-log` is useful for long sequential runs. The file is overwritten once per round with the current point and step. In `-both`, the snapshot contains two direction lines: `+=...` and `-=...`.
+`-log` is useful for long sequential runs. The file is overwritten once per round with the current point and step. Forward scans write `+POINT step 0xSTEP`, backward scans write `-POINT step 0xSTEP`, and `-both` writes both lines.
 
 ## Mask Brute Mode
 
@@ -845,7 +845,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf t
 
 В режиме `-priv` каждая выбранная видеокарта получает свою подпоследовательность приватов / приватных ключей. Например, с `-step 1 -device 0,1` GPU 0 начинает с `start`, GPU 1 начинает с `start + 1`, а эффективный шаг на каждой видеокарте становится `2`.
 
-`-log` удобен для долгого последовательного перебора. Файл перезаписывается один раз за раунд и содержит текущую точку и шаг. Для `-both` в файле будут две строки направлений: `+=...` и `-=...`.
+`-log` удобен для долгого последовательного перебора. Файл перезаписывается один раз за раунд и содержит текущую точку и шаг. Обычный проход пишет `+POINT step 0xSTEP`, `-back` пишет `-POINT step 0xSTEP`, а `-both` пишет обе строки.
 
 ## Перебор по маске
 
