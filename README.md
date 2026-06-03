@@ -9,14 +9,14 @@
 
 Author: Mikhail Khoroshavin, also known as `XopMC`
 
-`brainflayer-CUDA` is a CUDA program for checking brainwallet candidates and base private keys against cryptocurrency targets.
+`brainflayer-CUDA` is a CUDA program for checking brains, brainwallet phrases, and base private keys against cryptocurrency targets.
 
 The program has two public modes:
 
 - *brainwallet mode* is enabled by default;
 - `-priv` switches to base private-key mode.
 
-This release is intentionally focused on the parts that are useful in real audit and wallet-restoration work: file and stream input, sequential ranges, GPU mask generation, Bloom and XOR filters, exact hash targets, multi-GPU runs, live speed output, and address saving.
+This release keeps the parts that matter in practical wallet research and recovery work: file and stream input, sequential ranges, GPU mask generation, Bloom and XOR filters, exact hash targets, multi-GPU runs, speed output, and address saving.
 
 ## Important Notice
 
@@ -38,7 +38,7 @@ You are fully responsible for how you use this software. The author is not respo
   <img src="./docs/media/gpu-filter.png" alt="GPU start and target checks">
 </p>
 
-**Speed and live statistics.** Shows full-grid `-priv -c c` sequential speed on GPU 0, without manual `-b` / `-t` limits.
+**Speed and runtime statistics.** Shows full-grid `-priv -c c` sequential speed on GPU 0, without manual `-b` / `-t` limits.
 
 <p>
   <img src="./docs/media/statistics.png" alt="Speed and statistics">
@@ -52,9 +52,9 @@ You are fully responsible for how you use this software. The author is not respo
 
 ## What This Program Does
 
-The program takes candidates, derives selected target families, and compares the results with filters or exact hash targets.
+The program reads brains, phrases, or private keys, derives selected target families, and compares the results with filters or exact hash targets.
 
-Candidate sources can be:
+Input sources can be:
 
 - text lines from `stdin`;
 - files with `-i`;
@@ -67,7 +67,7 @@ Search targets can be:
 
 - GPU Bloom filters;
 - GPU XOR filters;
-- CPU-side Bloom/XOR verification after a GPU hit;
+- CPU Bloom/XOR verification after a GPU hit;
 - direct `-hash` / `-target` values for tests and small exact checks.
 
 When `-save` is enabled, found hashes are written as formatted cryptocurrency addresses for the selected target family. Without `-save`, the program prints the matched hash payload.
@@ -133,13 +133,13 @@ Brainflayer-CUDA.exe -i brain.txt -c cus -bf targets.blf -save -o found.txt
 
 Where:
 
-- `-i brain.txt` reads one candidate per line;
+- `-i brain.txt` reads one phrase per line;
 - `-c cus` checks compressed, uncompressed, and SegWit BTC-style targets;
 - `-bf targets.blf` loads a Bloom filter on the GPU;
 - `-save` writes found results as addresses;
 - `-o found.txt` changes the output file.
 
-### Brainwallets From Another Generator
+### Brainwallets From An External Generator
 
 If no input file is selected, the program reads `stdin`.
 
@@ -147,7 +147,7 @@ If no input file is selected, the program reads `stdin`.
 type brain.txt | Brainflayer-CUDA.exe -c c -bf targets.blf -save
 ```
 
-Or with another generator:
+With an external generator:
 
 ```powershell
 Generator.exe | Brainflayer-CUDA.exe -sha256 -iter 1,2,4 -c c -bf targets.blf
@@ -169,7 +169,7 @@ This example checks private key `1` against the compressed BTC hash160.
 
 ```text
 -h, -help        Show help.
--i FILE          Read candidates from a file. Can be repeated.
+-i FILE          Read input lines from a file. Can be repeated.
 -f DIR           Recursively scan a directory.
 -all             With -f: include all files, not only .txt files.
 -delete          Delete input files after processing.
@@ -203,7 +203,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffff -device 0-3 -c c -hash HASH
 
 Brainwallet mode is active by default.
 
-Each input candidate is hashed and then interpreted as key material for target derivation.
+Each input phrase is hashed and then interpreted as key material for target derivation.
 
 Supported hash modes:
 
@@ -244,7 +244,7 @@ Without `-hex`, the line is used as normal text.
 Brainflayer-CUDA.exe -priv -hex -i keys.txt -c c -bf targets.blf
 ```
 
-In this mode, input candidates are private keys, not brainwallet strings.
+In this mode, input lines are private keys, not brainwallet phrases.
 
 `-priv` supports:
 
@@ -259,7 +259,7 @@ In this mode, input candidates are private keys, not brainwallet strings.
 
 Sequential `-priv` scans use optimized CUDA kernels. For pure secp256k1 target sets, the program can use specialized kernels instead of the generic multi-curve path.
 
-In this mode private keys are generated on the GPU. The CPU sends the range parameters and receives found results; it does not upload one private key per candidate. This is the right mode for large private-key ranges.
+In this mode private keys are generated on the GPU. The CPU sends the range parameters and receives found results; it does not upload one private key per line. This is the right mode for large private-key ranges.
 
 Typical fast cases:
 
@@ -289,7 +289,7 @@ Sequential mode works in both default brainwallet mode and `-priv` mode.
 -back            Scan backward.
 -both            Scan both directions around start. Requires -n.
 -random          Random branch inside the selected range. Use with -n.
--n N             Candidate limit.
+-n N             Check limit.
 ```
 
 For `-priv`, values are 256-bit private-key numbers and are printed as 64 hex characters.
@@ -316,9 +316,9 @@ For `-priv`, each selected GPU receives a different private-key subsequence. Wit
 
 ## Mask Brute Mode
 
-Mask mode is a brainwallet candidate source. It creates candidates directly on the GPU, then applies the selected brainwallet hash, iteration list, filters, and target types.
+Mask mode creates brainwallet phrases by template directly on the GPU, then applies the selected brainwallet hash, iteration list, filters, and target types.
 
-This is important for speed: the CPU does not generate every candidate string and push it to the GPU one by one.
+This is important for speed: the CPU does not generate every phrase and push it to the GPU one by one.
 
 ```powershell
 Brainflayer-CUDA.exe -mask pass?d?d?d -sha256 -c c -bf targets.blf
@@ -356,13 +356,13 @@ Or from a file:
 Brainflayer-CUDA.exe -mask-file masks.txt -sha256 -iter 1,2,4 -c cus -bf targets.blf -save
 ```
 
-`-n` limits the total number of generated candidates:
+`-n` limits the total number of generated phrases:
 
 ```powershell
 Brainflayer-CUDA.exe -mask ?l?l?l?l?d?d -n 1000000 -c c -bf targets.blf
 ```
 
-With several GPUs, mask candidate ordinals are split across selected devices.
+With several GPUs, mask phrase indexes are split across selected devices.
 
 ```powershell
 Brainflayer-CUDA.exe -mask ?d?d?d?d?d?d?d?d -device 0,1 -c c -bf targets.blf
@@ -403,7 +403,7 @@ Brainflayer-CUDA.exe -i brain.txt -c u -xu uncompressed.xu -xx full_uncompressed
 Brainflayer-CUDA.exe -priv -start 1 -end ffffff -c c -hash 751e76e8199196d454941c45d1b3a323f1433bd6
 ```
 
-Use CPU post-checks when you need extra verification after a GPU-side hit. They add CPU work, so they are not a free speed feature.
+Use CPU post-checks when you need extra verification after a GPU hit. They improve confirmation, but they also add CPU work.
 
 ### Bloom Filters
 
@@ -419,9 +419,9 @@ Brainflayer-CUDA.exe -i brain.txt -bf wallet_a.blf -bf wallet_b.blf -c c
 
 Create XOR filters with [XorFilter](https://github.com/XopMC/XorFilter), then load them directly into `brainflayer-CUDA`.
 
-Recommended workflow:
+Recommended setup:
 
-- `.xor_u` is the only XOR format recommended as a final standalone filter without extra CPU confirmation.
+- `.xor_u` is the only XOR format recommended as the main filter without extra CPU confirmation.
 - `.xor_c`, `.xor_uc`, and `.xor_hc` are compact GPU prefilters. They save GPU memory and are useful for broad scans, but they should be confirmed by a full `.xor_u` CPU check.
 - For `.xor_c`, `.xor_uc`, and `.xor_hc`, add `-xx wallet.xor_u` so GPU survivors are rechecked on the CPU against an uncompressed `.xor_u` filter.
 - Several XOR filters of the same family can be loaded by repeating the corresponding flag.
@@ -438,13 +438,13 @@ Multi-filter example:
 Brainflayer-CUDA.exe -i brain.txt -xc wallet_a.xor_c -xc wallet_b.xor_c -xx wallet_master.xor_u -c cus
 ```
 
-For private-key ranges the same filter flow works with `-priv`:
+For private-key ranges the same filter setup works with `-priv`:
 
 ```powershell
 Brainflayer-CUDA.exe -priv -start START -end END -xc wallet.xor_c -xx wallet.xor_u -c c
 ```
 
-This pattern gives a compact GPU filter at the front and a precise CPU re-check at the end.
+This setup gives a compact GPU filter first and a precise CPU re-check after it.
 
 ## Target Types
 
@@ -508,9 +508,9 @@ For real runs:
 - use a current NVIDIA driver compatible with CUDA `12.8`;
 - avoid small `-b` / `-t` values unless you are testing;
 - select only required target families with `-c`;
-- prefer generated ranges or GPU masks when the candidate space is naturally generated;
+- prefer generated ranges or GPU masks when phrases can be created that way;
 - use `-silent` during long sessions if console output becomes a bottleneck;
-- keep input files on a fast disk when feeding huge candidate lists;
+- keep input files on a fast disk when feeding huge wordlists;
 - use GPU filters for the main search and CPU post-checks only when you need the extra verification.
 
 When checking only compressed secp256k1 targets from a private-key range, the usual high-speed form is:
@@ -542,14 +542,14 @@ SOLANA: BvDQDEgq3kbNT7VQFQRQPjc4Ta5k7d5s7GdcgoKnq3KG
 
 Автор: Михаил Хорошавин, также известен как `XopMC`
 
-`brainflayer-CUDA` - это программа на CUDA для проверки кандидатов brainwallet и обычных приватов / приватных ключей по криптовалютным целям.
+`brainflayer-CUDA` - это программа на CUDA для проверки брейнов, brainwallet-фраз и обычных приватов / приватных ключей по криптовалютным целям.
 
 В публичной версии есть два режима:
 
 - *brainwallet* включен по умолчанию;
 - `-priv` включает режим обычных приватов / приватных ключей.
 
-В релизе оставлено только то, что нужно для практической работы: файлы и поток ввода, последовательные диапазоны, перебор по маске на видеокарте, Bloom и XOR фильтры, точная проверка по хешу, несколько видеокарт, живая статистика скорости и сохранение адресов.
+В релизе оставлено только то, что нужно для практической работы: файлы и поток ввода, последовательные диапазоны, перебор по маске на видеокарте, Bloom и XOR фильтры, точная проверка по хешу, несколько видеокарт, статистика скорости в реальном времени и сохранение адресов.
 
 ## Важное предупреждение
 
@@ -571,7 +571,7 @@ SOLANA: BvDQDEgq3kbNT7VQFQRQPjc4Ta5k7d5s7GdcgoKnq3KG
   <img src="./docs/media/gpu-filter.png" alt="Запуск видеокарты и проверка цели">
 </p>
 
-**Скорость и живая статистика.** Полная сетка для `-priv -c c` на GPU 0, без ручного ограничения через `-b` / `-t`.
+**Скорость и статистика в реальном времени.** Полная сетка для `-priv -c c` на GPU 0, без ручного ограничения через `-b` / `-t`.
 
 <p>
   <img src="./docs/media/statistics.png" alt="Скорость и статистика">
@@ -585,16 +585,16 @@ SOLANA: BvDQDEgq3kbNT7VQFQRQPjc4Ta5k7d5s7GdcgoKnq3KG
 
 ## Что делает программа
 
-Программа получает кандидаты, считает выбранные типы целей и сравнивает результат с фильтрами или точным хешем.
+Программа берет брейны, фразы или приваты, считает выбранные типы целей и сравнивает результат с фильтрами или точным хешем.
 
-Источники кандидатов:
+Откуда брать брейны / фразы / приваты:
 
 - строки из стандартного ввода;
 - файлы через `-i`;
 - папки через `-f`;
 - последовательные диапазоны через `-start` и `-end`;
 - случайные значения через `-random`;
-- маски brainwallet, которые генерируются прямо на видеокарте через `-mask` или `-mask-file`.
+- маски brainwallet, которые создаются прямо на видеокарте через `-mask` или `-mask-file`.
 
 Цели поиска:
 
@@ -656,7 +656,7 @@ bin/Brainflayer-CUDA
 
 ## Быстрый запуск
 
-### Brainwallet из файла
+### Брейны / фразы из файла
 
 Режим brainwallet включен по умолчанию. Отдельный флаг режима не нужен.
 
@@ -666,13 +666,13 @@ Brainflayer-CUDA.exe -i brain.txt -c cus -bf targets.blf -save -o found.txt
 
 Где:
 
-- `-i brain.txt` читает по одному кандидату на строку;
+- `-i brain.txt` читает по одной фразе на строку;
 - `-c cus` проверяет compressed, uncompressed и SegWit цели;
 - `-bf targets.blf` загружает Bloom фильтр на видеокарту;
 - `-save` сохраняет найденное в виде адресов;
 - `-o found.txt` задает файл результата.
 
-### Brainwallet из другого генератора
+### Брейны / фразы из внешнего генератора
 
 Если файл не указан, программа читает стандартный ввод.
 
@@ -680,7 +680,7 @@ Brainflayer-CUDA.exe -i brain.txt -c cus -bf targets.blf -save -o found.txt
 type brain.txt | Brainflayer-CUDA.exe -c c -bf targets.blf -save
 ```
 
-Пример со сторонним генератором:
+Пример с внешним генератором:
 
 ```powershell
 Generator.exe | Brainflayer-CUDA.exe -sha256 -iter 1,2,4 -c c -bf targets.blf
@@ -702,7 +702,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end 1 -device 0 -c c -hash 751e76e8199196d4
 
 ```text
 -h, -help        показать справку
--i FILE          читать кандидаты из файла, можно повторять
+-i FILE          читать фразы из файла, можно повторять
 -f DIR           рекурсивно читать папку
 -all             вместе с -f читать все файлы, не только .txt
 -delete          удалять входные файлы после обработки
@@ -736,7 +736,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffff -device 0-3 -c c -hash HASH
 
 Это основной режим, он включен по умолчанию.
 
-Каждый входной кандидат хешируется выбранным способом, после чего используется как материал для проверки целей.
+Каждая входная фраза хешируется выбранным способом, после чего используется как материал для проверки целей.
 
 Способы хеширования:
 
@@ -759,7 +759,7 @@ Brainflayer-CUDA.exe -i brain.txt -sha256 -iter 1,4,6-10 -c c -bf targets.blf
 
 Для `-raw` допустим только один проход. Используйте этот режим только если входные байты уже являются числом, которое нужно проверить.
 
-### Hex-ввод в режиме brainwallet
+### Ввод в hex в режиме brainwallet
 
 С флагом `-hex` каждая входная строка сначала декодируется как hex, и только потом хешируется.
 
@@ -777,7 +777,7 @@ Brainflayer-CUDA.exe -hex -i hex_brain.txt -sha256 -c u -bf targets.blf -save
 Brainflayer-CUDA.exe -priv -hex -i keys.txt -c c -bf targets.blf
 ```
 
-В этом режиме входные кандидаты являются приватами / приватными ключами, а не строками brainwallet.
+В этом режиме входные строки являются приватами / приватными ключами, а не brainwallet-фразами.
 
 `-priv` поддерживает:
 
@@ -788,7 +788,7 @@ Brainflayer-CUDA.exe -priv -hex -i keys.txt -c c -bf targets.blf
 - последовательные диапазоны;
 - случайные приваты / приватные ключи.
 
-### Быстрый последовательный путь для secp256k1
+### Быстрый последовательный перебор для secp256k1
 
 В последовательном режиме `-priv` используются оптимизированные CUDA-ядра. Для чистых secp256k1-целей программа может запускать специализированные ядра вместо общего пути для разных кривых.
 
@@ -805,7 +805,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c e -bf eth.blf
 Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c x -bf xpoint.blf
 ```
 
-Если смешать secp256k1-цели с ed25519, sr25519, TON, DOT, ICP или другими несовместимыми семействами, будет использован общий совместимый путь.
+Если в одном запуске смешать secp256k1-цели с ed25519, sr25519, TON, DOT, ICP или другими несовместимыми семействами, программа перейдет на общий совместимый вариант.
 
 Для максимальной скорости выбирайте только те буквы `-c`, которые действительно нужны. `-c c` легче, чем `-c cus`, а `-c cus` легче, чем широкий набор разных семейств.
 
@@ -822,12 +822,12 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffff -c x -bf xpoint.blf
 -back            идти назад
 -both            идти в обе стороны от start, требует -n
 -random          случайные значения внутри диапазона, использовать с -n
--n N             ограничение количества кандидатов
+-n N             ограничение количества проверок
 ```
 
 Для `-priv` значения являются 256-битными приватами / приватными ключами и печатаются как 64 hex-символа.
 
-Для режима brainwallet значения являются 2048-битными точками и печатаются как 512 hex-символов.
+Для режима brainwallet значения являются 2048-битными точками brain-перебора и печатаются как 512 hex-символов.
 
 Короткие значения дополняются нулями слева.
 
@@ -849,7 +849,7 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffffffffffffff -device 0,1 -c c -bf t
 
 ## Перебор по маске
 
-Маска - это источник кандидатов brainwallet. Кандидаты создаются прямо на видеокарте, после чего к ним применяется выбранное хеширование, список `-iter`, фильтры и типы целей.
+Маска - это способ генерировать брейны / фразы brainwallet по заданному шаблону. Фразы создаются прямо на видеокарте, после чего к ним применяется выбранное хеширование, список `-iter`, фильтры и типы целей.
 
 Это важно для скорости: процессор не генерирует каждую строку и не передает ее на видеокарту по одной.
 
@@ -889,13 +889,13 @@ Brainflayer-CUDA.exe -mask admin?d?d -mask pass?d?d?d -sha256 -c c -bf targets.b
 Brainflayer-CUDA.exe -mask-file masks.txt -sha256 -iter 1,2,4 -c cus -bf targets.blf -save
 ```
 
-`-n` ограничивает общее количество сгенерированных кандидатов:
+`-n` ограничивает общее количество сгенерированных фраз:
 
 ```powershell
 Brainflayer-CUDA.exe -mask ?l?l?l?l?d?d -n 1000000 -c c -bf targets.blf
 ```
 
-На нескольких видеокартах порядковые номера кандидатов маски делятся между выбранными устройствами.
+На нескольких видеокартах номера фраз по маске делятся между выбранными устройствами.
 
 ```powershell
 Brainflayer-CUDA.exe -mask ?d?d?d?d?d?d?d?d -device 0,1 -c c -bf targets.blf
@@ -936,9 +936,9 @@ Brainflayer-CUDA.exe -i brain.txt -c u -xu uncompressed.xu -xx full_uncompressed
 Brainflayer-CUDA.exe -priv -start 1 -end ffffff -c c -hash 751e76e8199196d454941c45d1b3a323f1433bd6
 ```
 
-Проверка на процессоре нужна, когда после совпадения на видеокарте требуется дополнительная проверка. Она добавляет работу процессору, поэтому это не бесплатное ускорение.
+Проверка на процессоре нужна, когда после совпадения на видеокарте требуется дополнительное подтверждение. Это повышает точность, но добавляет работу процессору.
 
-### Bloom Фильтры
+### Bloom-фильтры
 
 `brainflayer-CUDA` принимает Bloom-фильтры, совместимые с форматами, которые используют [brainflayer](https://github.com/ryancdotorg/brainflayer) и [Mnemonic_CPP](https://github.com/XopMC/Mnemonic_CPP).
 
@@ -948,15 +948,15 @@ Brainflayer-CUDA.exe -priv -start 1 -end ffffff -c c -hash 751e76e8199196d454941
 Brainflayer-CUDA.exe -i brain.txt -bf wallet_a.blf -bf wallet_b.blf -c c
 ```
 
-### XOR Фильтры И XorFilter
+### XOR-фильтры и XorFilter
 
 XOR-фильтры создавайте через [XorFilter](https://github.com/XopMC/XorFilter), после этого их можно сразу подключать в `brainflayer-CUDA`.
 
 Рекомендуемая схема:
 
-- `.xor_u` - единственный XOR-формат, который можно использовать как финальный фильтр без дополнительной проверки на процессоре.
+- `.xor_u` - единственный XOR-формат, который можно использовать как основной фильтр без дополнительной проверки на процессоре.
 - `.xor_c`, `.xor_uc` и `.xor_hc` - компактные предварительные фильтры для видеокарты. Они экономят память видеокарты и удобны для широкого поиска, но их лучше подтверждать полной проверкой `.xor_u` на процессоре.
-- Для `.xor_c`, `.xor_uc` и `.xor_hc` добавляйте `-xx wallet.xor_u`, чтобы кандидаты после видеокарты перепроверялись на процессоре по несжатому `.xor_u`.
+- Для `.xor_c`, `.xor_uc` и `.xor_hc` добавляйте `-xx wallet.xor_u`, чтобы значения после видеокарты перепроверялись на процессоре по несжатому `.xor_u`.
 - Несколько XOR-фильтров одного семейства можно подключать повторением соответствующего флага.
 
 Практический пример:
@@ -977,7 +977,7 @@ Brainflayer-CUDA.exe -i brain.txt -xc wallet_a.xor_c -xc wallet_b.xor_c -xx wall
 Brainflayer-CUDA.exe -priv -start START -end END -xc wallet.xor_c -xx wallet.xor_u -c c
 ```
 
-Такой шаблон дает компактный фильтр на видеокарте на входе и точную проверку на процессоре на выходе.
+Такой запуск дает компактный фильтр на видеокарте и точную перепроверку на процессоре.
 
 ## Типы целей
 
@@ -1041,7 +1041,7 @@ Brainflayer-CUDA.exe -i brain.txt -c c -bf targets.blf -save -silent -o found.tx
 - используйте драйвер NVIDIA, совместимый с CUDA `12.8`;
 - не задавайте маленькие `-b` / `-t`, если это не тест;
 - выбирайте только нужные типы целей через `-c`;
-- используйте диапазоны или маски на видеокарте, если пространство кандидатов удобно генерировать;
+- используйте диапазоны или маски на видеокарте, если фразы удобно получать таким способом;
 - включайте `-silent` в долгих запусках, если вывод в консоль мешает;
 - держите большие входные файлы на быстром диске;
 - основной поиск делайте через фильтры на видеокарте, а проверку на процессоре включайте только когда она действительно нужна.
