@@ -294,7 +294,8 @@ Sequential mode works in both default brainwallet mode and `-priv` mode.
 -end VALUE       End point.
 -step VALUE      Step. Default: 1.
 -back            Scan backward.
--both            Scan both directions around start.
+-both            Without -end: scan both directions around start.
+                 With -start/-end: + starts at -start, - starts at -end.
 -random          Random branch inside the selected range.
 -n N             With -random: +/- span before changing the random point.
 -log FILE        Sequential progress snapshot, overwritten each round.
@@ -312,6 +313,7 @@ Examples:
 ```powershell
 Brainflayer-CUDA.exe -priv -start 1 -end ffffff -step 1 -c c -hash HASH
 Brainflayer-CUDA.exe -priv -start ffffff -end 1 -back -step 1 -c c -bf targets.blf
+Brainflayer-CUDA.exe -priv -start 8000000000 -end ffffffffff -both -step 3834408593 -c c -hash HASH
 Brainflayer-CUDA.exe -start 1 -end ffff -sha256 -iter 1,2,4 -c c -bf targets.blf
 ```
 
@@ -832,7 +834,8 @@ Brainflayer-CUDA.exe -priv -random -c c -bf btc_compressed.blf
 -end VALUE       конец диапазона
 -step VALUE      шаг, по умолчанию 1
 -back            идти назад
--both            идти в обе стороны от start
+-both            без -end: идти в обе стороны от start
+                 с -start/-end: + идёт от -start, - идёт от -end
 -random          случайные значения внутри диапазона
 -n N             с -random: участок +/- перед сменой случайной точки
 -log FILE        снимок текущей точки последовательного перебора
@@ -850,6 +853,7 @@ Brainflayer-CUDA.exe -priv -random -c c -bf btc_compressed.blf
 ```powershell
 Brainflayer-CUDA.exe -priv -start 1 -end ffffff -step 1 -c c -hash HASH
 Brainflayer-CUDA.exe -priv -start ffffff -end 1 -back -step 1 -c c -bf targets.blf
+Brainflayer-CUDA.exe -priv -start 8000000000 -end ffffffffff -both -step 3834408593 -c c -hash HASH
 Brainflayer-CUDA.exe -start 1 -end ffff -sha256 -iter 1,2,4 -c c -bf targets.blf
 ```
 

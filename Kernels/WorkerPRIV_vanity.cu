@@ -190,6 +190,12 @@ __device__ __forceinline__ uint8_t vanity_make_endo_type(uint8_t group, uint8_t 
 	return (uint8_t)(ENDO_TAG_BASE + ENDO_GROUP_STRIDE * group + variant);
 }
 
+__device__ __forceinline__ static uint64_t vanity_result_index(int mode, uint64_t starter, int batch, int pkField)
+{
+	uint64_t base = starter + (uint64_t)(batch * VS_GRP_SIZE);
+	return (mode == 1) ? (base + (uint64_t)pkField) : (base + (uint64_t)VS_GRP_SIZE - (uint64_t)pkField);
+}
+
 __device__ __forceinline__ static void vanity_save_result(uint32_t* c, uint8_t* priv_bytes, int mode, uint64_t idx, uint64_t step,
 	bool* isResult, bool* buffResult, const void* hash_src, int hash_len, uint8_t type_val)
 {
@@ -215,7 +221,7 @@ __device__ __forceinline__ static void vanity_save_result(uint32_t* c, uint8_t* 
 __device__ static void process_point_x(uint64_t* px, uint64_t* py, int pkField, int batch, void* vctx)
 {
 	VanityCtx* ctx = (VanityCtx*)vctx;
-	uint64_t idx = ctx->starter + (uint64_t)(batch * VS_GRP_SIZE + pkField);
+	uint64_t idx = vanity_result_index(ctx->mode, ctx->starter, batch, pkField);
 	uint32_t xpoint_hash[8];
 	u64x4_to_x32(px, (unsigned char*)xpoint_hash);
 	if (checkHash(xpoint_hash))
@@ -226,7 +232,7 @@ __device__ static void process_point_x(uint64_t* px, uint64_t* py, int pkField, 
 __device__ static void process_point_u(uint64_t* px, uint64_t* py, int pkField, int batch, void* vctx)
 {
 	VanityCtx* ctx = (VanityCtx*)vctx;
-	uint64_t idx = ctx->starter + (uint64_t)(batch * VS_GRP_SIZE + pkField);
+	uint64_t idx = vanity_result_index(ctx->mode, ctx->starter, batch, pkField);
 	_GetHash160Uncomp_fast(px, py, (uint8_t*)ctx->hash160);
 	if (checkHash(ctx->hash160))
 		vanity_save_result(ctx->c, ctx->priv_bytes, ctx->mode, idx, ctx->step, ctx->isResult, ctx->buffResult, ctx->hash160, 20, 0x01);
@@ -236,7 +242,7 @@ __device__ static void process_point_u(uint64_t* px, uint64_t* py, int pkField, 
 __device__ static void process_point_s(uint64_t* px, uint64_t* py, int pkField, int batch, void* vctx)
 {
 	VanityCtx* ctx = (VanityCtx*)vctx;
-	uint64_t idx = ctx->starter + (uint64_t)(batch * VS_GRP_SIZE + pkField);
+	uint64_t idx = vanity_result_index(ctx->mode, ctx->starter, batch, pkField);
 	uint8_t odd_py = (uint8_t)(py[0] & 1);
 	_GetHash160Comp_fast(px, odd_py, (uint8_t*)ctx->hash160);
 	_GetHash160P2SHCompFromHash(ctx->hash160, ctx->hash160);
@@ -248,7 +254,7 @@ __device__ static void process_point_s(uint64_t* px, uint64_t* py, int pkField, 
 __device__ static void process_point_r(uint64_t* px, uint64_t* py, int pkField, int batch, void* vctx)
 {
 	VanityCtx* ctx = (VanityCtx*)vctx;
-	uint64_t idx = ctx->starter + (uint64_t)(batch * VS_GRP_SIZE + pkField);
+	uint64_t idx = vanity_result_index(ctx->mode, ctx->starter, batch, pkField);
 	u64x4_to_pubkey65(px, py, ctx->pubKeys);
 	uint8_t TaprootHash[32];
 	TweakTaproot(&TaprootHash[0], &ctx->pubKeys[0], ctx->precPtr, ctx->precPitch);
@@ -261,7 +267,7 @@ __device__ static void process_point_r(uint64_t* px, uint64_t* py, int pkField, 
 __device__ static void process_point_e(uint64_t* px, uint64_t* py, int pkField, int batch, void* vctx)
 {
 	VanityCtx* ctx = (VanityCtx*)vctx;
-	uint64_t idx = ctx->starter + (uint64_t)(batch * VS_GRP_SIZE + pkField);
+	uint64_t idx = vanity_result_index(ctx->mode, ctx->starter, batch, pkField);
 	uint32_t eth_hash160[5];
 	keccak_eth64_tail20_from_xy(px, py, eth_hash160);
 	if (checkHash(eth_hash160))
@@ -300,8 +306,7 @@ __device__ __forceinline__ static void vanity_emit(bool* isResult, bool* buffRes
 __device__ static void process_point_cusr(uint64_t* px, uint64_t* py, int pkField, int batch, void* vctx)
 {
 	VanityCtx* ctx = (VanityCtx*)vctx;
-	int gpf = batch * VS_GRP_SIZE + pkField;
-	uint64_t idx = ctx->starter + (uint64_t)gpf;
+	uint64_t idx = vanity_result_index(ctx->mode, ctx->starter, batch, pkField);
 	uint8_t odd_py = (uint8_t)(py[0] & 1);
 	bool hit = false;
 	const bool endo = endomorphism_dev;
@@ -568,7 +573,7 @@ __global__ void workerPRIV_seq_vanity_c(
 				uint8_t odd_py = (uint8_t)(py[0] & 1);
 				_GetHash160Comp_fast(px, odd_py, (uint8_t*)hash160);
 				if (checkHash(hash160)) {
-					uint64_t idx = batch_base + (uint64_t)pkField;
+					uint64_t idx = (mode == 1) ? (batch_base + (uint64_t)pkField) : (batch_base + (uint64_t)VS_GRP_SIZE - (uint64_t)pkField);
 					vanity_save_result(c, priv_bytes, mode, idx, step, isResult, buffResult, hash160, 20, 0x02);
 				}
 			}

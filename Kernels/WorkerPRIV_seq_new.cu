@@ -379,8 +379,8 @@ __global__ void workerPRIV_seq_128(
 					bool uncompressed, compressed, segwit, ethereum, taproot, xpoint, xrp, sui, iota, aptos, icp, fil, xtz, endomorphism;
 // Device helper: operator.
 					__device__ __forceinline__ void operator()(uint64_t* px, uint64_t* py, int pkField) const {
-						int globalPkField = batch * VS_GRP_SIZE + pkField;
-						uint64_t idx = starter + (uint64_t)globalPkField;
+						uint64_t batchBase = starter + (uint64_t)(batch * VS_GRP_SIZE);
+						uint64_t idx = (mode == 1) ? (batchBase + (uint64_t)pkField) : (batchBase + (uint64_t)VS_GRP_SIZE - (uint64_t)pkField);
 						uint8_t odd_py = (uint8_t)(py[0] & 1);
 						bool hit = false;
 						#define _CP_IN() do { if (hit) break; uint32_t r[8]; uint64_t off_lo, off_hi; mul_u64_u64_to_u128(idx, step, off_lo, off_hi); if (mode == 1) add128to256_device(c, off_lo, off_hi, r); else sub128from256_device(c, off_lo, off_hi, r); storeWordsToBE256(r, priv_bytes); hit = true; } while(0)

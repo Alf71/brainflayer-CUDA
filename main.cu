@@ -29,6 +29,7 @@
 #if defined(_WIN32) || defined(_WIN64)
 #define NOMINMAX
 #include <fcntl.h>
+#include <intrin.h>
 #include <io.h>
 #include <windows.h>
 #else
@@ -307,7 +308,7 @@ static void printSequentialRangeBounds()
             static_cast<unsigned long long>(step));
     }
     printf("START %s: %s\n", label, startPrint.c_str());
-    if (!both) {
+    if (!both || !end_point.empty()) {
         printf("END %s: %s\n", label, endPrint.c_str());
     }
     fflush(stdout);
@@ -864,7 +865,8 @@ static void printHelp()
 [!] -end VALUE                      End point.
 [!] -step HEX                       Step, default 1.
 [!] -back                           Backward seq branch.
-[!] -both                           +/- branch around start.
+[!] -both                           Without -end: +/- branch around start.
+[!]                                 With -start/-end: + from start, - from end.
 [!] -random                         Random branch; with -start/-end picks points inside range.
 [!] -n N                            Random +/- span before changing the random point.
 [!] -log FILE                       Overwrite progress snapshot after each seq round.
@@ -2836,6 +2838,74 @@ static void advanceBig(array<uint8_t, N>& value, uint64_t amount, bool back)
     }
 }
 
+static inline void mul64x64To128Host(uint64_t a, uint64_t b, uint64_t& lo, uint64_t& hi)
+{
+#if defined(_MSC_VER) && defined(_M_X64)
+    lo = _umul128(a, b, &hi);
+#else
+    __uint128_t p = static_cast<__uint128_t>(a) * static_cast<__uint128_t>(b);
+    lo = static_cast<uint64_t>(p);
+    hi = static_cast<uint64_t>(p >> 64);
+#endif
+}
+
+static inline uint8_t productByte128(uint64_t lo, uint64_t hi, size_t offset)
+{
+    return static_cast<uint8_t>((offset < 8)
+        ? ((lo >> (offset * 8)) & 0xffu)
+        : ((hi >> ((offset - 8) * 8)) & 0xffu));
+}
+
+template <size_t N>
+static void advanceBigProduct(array<uint8_t, N>& value, uint64_t amount, uint64_t seqStep, bool back)
+{
+    uint64_t lo = 0;
+    uint64_t hi = 0;
+    mul64x64To128Host(amount, seqStep, lo, hi);
+
+    if (back) {
+        uint16_t borrow = 0;
+        for (size_t offset = 0; offset < 16 && offset < N; ++offset) {
+            const size_t idx = N - 1 - offset;
+            const uint16_t sub = static_cast<uint16_t>(productByte128(lo, hi, offset)) + borrow;
+            if (value[idx] >= sub) {
+                value[idx] = static_cast<uint8_t>(value[idx] - sub);
+                borrow = 0;
+            }
+            else {
+                value[idx] = static_cast<uint8_t>(256u + value[idx] - sub);
+                borrow = 1;
+            }
+        }
+        for (size_t idx = (N > 16 ? N - 16 : 0); borrow != 0 && idx > 0;) {
+            --idx;
+            if (value[idx] >= borrow) {
+                value[idx] = static_cast<uint8_t>(value[idx] - borrow);
+                borrow = 0;
+            }
+            else {
+                value[idx] = static_cast<uint8_t>(256u + value[idx] - borrow);
+                borrow = 1;
+            }
+        }
+    }
+    else {
+        uint16_t carry = 0;
+        for (size_t offset = 0; offset < 16 && offset < N; ++offset) {
+            const size_t idx = N - 1 - offset;
+            const uint16_t sum = static_cast<uint16_t>(value[idx]) + productByte128(lo, hi, offset) + carry;
+            value[idx] = static_cast<uint8_t>(sum & 0xffu);
+            carry = static_cast<uint16_t>(sum >> 8);
+        }
+        for (size_t idx = (N > 16 ? N - 16 : 0); carry != 0 && idx > 0;) {
+            --idx;
+            const uint16_t sum = static_cast<uint16_t>(value[idx]) + carry;
+            value[idx] = static_cast<uint8_t>(sum & 0xffu);
+            carry = static_cast<uint16_t>(sum >> 8);
+        }
+    }
+}
+
 template <size_t N>
 static bool inRange(const array<uint8_t, N>& value, const array<uint8_t, N>& end, bool back)
 {
@@ -2855,24 +2925,29 @@ static void runRangeSeqChunk(GpuRuntimeContext& processor, const array<uint8_t, 
 template <size_t N>
 static void processRangeBoth(GpuRuntimeContext& processor)
 {
+    const bool hasRangeEnd = !end_point.empty();
     array<uint8_t, N> plus = bytesFromHexFixed<N>(start_point);
-    array<uint8_t, N> minus = plus;
+    array<uint8_t, N> minus = hasRangeEnd ? bytesFromHexFixed<N>(end_point) : plus;
+    array<uint8_t, N> plusLimit = hasRangeEnd ? minus : array<uint8_t, N>{};
+    array<uint8_t, N> minusLimit = plus;
+    if (!hasRangeEnd) {
+        plusLimit.fill(0xff);
+        minusLimit.fill(0x00);
+    }
+    bool plusActive = !hasRangeEnd || inRange(plus, plusLimit, false);
+    bool minusActive = !hasRangeEnd || inRange(minus, minusLimit, true);
     const uint64_t devCount = static_cast<uint64_t>(max(1, processor.deviceCount()));
     const uint64_t devOrdinal = static_cast<uint64_t>(max(0, processor.deviceOrdinal()));
 
     const uint64_t fullChunk = static_cast<uint64_t>(BLOCK_NUMBER) * static_cast<uint64_t>(BLOCK_THREADS) *
         static_cast<uint64_t>(runKind == RunKind::Priv ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS_BRAIN);
-    if (fullChunk == 0 || mulOverflow64(step, fullChunk)) {
+    if (fullChunk == 0 || mulOverflow64(fullChunk, devOrdinal) || mulOverflow64(fullChunk, devCount)) {
         throw runtime_error("range launch overflow");
     }
 
-    const uint64_t chunkDelta = step * fullChunk;
-    if (mulOverflow64(chunkDelta, devOrdinal) || mulOverflow64(chunkDelta, devCount)) {
-        throw runtime_error("range launch overflow");
-    }
-    const uint64_t deviceDelta = chunkDelta * devOrdinal;
-    const uint64_t roundDelta = chunkDelta * devCount;
-    while (isRun.load(std::memory_order_acquire)) {
+    const uint64_t deviceOffset = fullChunk * devOrdinal;
+    const uint64_t roundOffset = fullChunk * devCount;
+    while (isRun.load(std::memory_order_acquire) && (!hasRangeEnd || plusActive || minusActive)) {
         if (devOrdinal == 0) {
             updateSeqLogCheckpointBoth(step, plus, minus);
         }
@@ -2880,14 +2955,26 @@ static void processRangeBoth(GpuRuntimeContext& processor)
 
         array<uint8_t, N> localPlus = plus;
         array<uint8_t, N> localMinus = minus;
-        advanceBig(localPlus, deviceDelta, false);
-        advanceBig(localMinus, deviceDelta, true);
-        runRangeSeqChunk(processor, localPlus, false, step, fullChunk);
-        runRangeSeqChunk(processor, localMinus, true, step, fullChunk);
+        advanceBigProduct(localPlus, deviceOffset, step, false);
+        advanceBigProduct(localMinus, deviceOffset, step, true);
+        if ((!hasRangeEnd || plusActive) && inRange(localPlus, plusLimit, false)) {
+            runRangeSeqChunk(processor, localPlus, false, step, fullChunk);
+        }
+        if ((!hasRangeEnd || minusActive) && inRange(localMinus, minusLimit, true)) {
+            runRangeSeqChunk(processor, localMinus, true, step, fullChunk);
+        }
 
         waitSeqRoundBarrier();
-        advanceBig(plus, roundDelta, false);
-        advanceBig(minus, roundDelta, true);
+        array<uint8_t, N> nextPlus = plus;
+        array<uint8_t, N> nextMinus = minus;
+        advanceBigProduct(nextPlus, roundOffset, step, false);
+        advanceBigProduct(nextMinus, roundOffset, step, true);
+        if (hasRangeEnd) {
+            plusActive = plusActive && lessOrEqual(plus, nextPlus) && nextPlus != plus && inRange(nextPlus, plusLimit, false);
+            minusActive = minusActive && lessOrEqual(nextMinus, minus) && nextMinus != minus && inRange(nextMinus, minusLimit, true);
+        }
+        plus = nextPlus;
+        minus = nextMinus;
     }
 }
 
@@ -2908,35 +2995,36 @@ static void processRangeTyped(GpuRuntimeContext& processor)
     }
 
     array<uint8_t, N> cur = start;
+    array<uint8_t, N> rangeEnd = end;
+    if (backward && !end_point.empty() && lessOrEqual(start, end) && start != end) {
+        cur = end;
+        rangeEnd = start;
+    }
     const uint64_t devCount = static_cast<uint64_t>(max(1, processor.deviceCount()));
     const uint64_t devOrdinal = static_cast<uint64_t>(max(0, processor.deviceOrdinal()));
     const uint64_t fullChunk = static_cast<uint64_t>(BLOCK_NUMBER) * static_cast<uint64_t>(BLOCK_THREADS) *
         static_cast<uint64_t>(runKind == RunKind::Priv ? PRIV_SEQ_THREAD_STEPS : THREAD_STEPS_BRAIN);
-    if (fullChunk == 0 || mulOverflow64(step, fullChunk)) {
+    if (fullChunk == 0 || mulOverflow64(fullChunk, devOrdinal) || mulOverflow64(fullChunk, devCount)) {
         throw runtime_error("range launch overflow");
     }
 
-    const uint64_t chunkDelta = step * fullChunk;
-    if (mulOverflow64(chunkDelta, devOrdinal) || mulOverflow64(chunkDelta, devCount)) {
-        throw runtime_error("range launch overflow");
-    }
-    const uint64_t deviceDelta = chunkDelta * devOrdinal;
-    const uint64_t roundDelta = chunkDelta * devCount;
-    while (isRun.load(std::memory_order_acquire) && inRange(cur, end, backward)) {
+    const uint64_t deviceOffset = fullChunk * devOrdinal;
+    const uint64_t roundOffset = fullChunk * devCount;
+    while (isRun.load(std::memory_order_acquire) && inRange(cur, rangeEnd, backward)) {
         if (devOrdinal == 0) {
             updateSeqLogCheckpointPoint(step, cur, backward);
         }
         waitSeqRoundBarrier();
 
         array<uint8_t, N> local = cur;
-        advanceBig(local, deviceDelta, backward);
-        if (inRange(local, end, backward)) {
+        advanceBigProduct(local, deviceOffset, step, backward);
+        if (inRange(local, rangeEnd, backward)) {
             runRangeSeqChunk(processor, local, backward, step, fullChunk);
         }
 
         waitSeqRoundBarrier();
         array<uint8_t, N> next = cur;
-        advanceBig(next, roundDelta, backward);
+        advanceBigProduct(next, roundOffset, step, backward);
         if (backward) {
             if (greaterOrEqual(next, cur) && next != cur) {
                 break;
